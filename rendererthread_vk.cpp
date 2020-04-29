@@ -96,7 +96,7 @@ private:
     RendererThreadedVK* renderer;
     int                 index;
 
-    nvvk::RingCmdPool m_pool;
+    nvvk::RingCommandPool m_pool;
 
     int                     m_frame;
     std::condition_variable m_hasWorkCond;
@@ -136,9 +136,10 @@ private:
 
   ThreadPool m_threadpool;
 
-  bool m_workerBatched;
-  int  m_workingSet;
-  int  m_frame;
+  bool     m_workerBatched;
+  int      m_workingSet;
+  int      m_frame;
+  uint32_t m_cycleCurrent;
 
   ThreadJob* m_jobs;
 
@@ -292,12 +293,12 @@ private:
     }
   }
 
-  void setupCmdBuffer(DrawSetup& sc, nvvk::RingCmdPool& pool, const DrawItem* NV_RESTRICT drawItems, size_t drawCount)
+  void setupCmdBuffer(DrawSetup& sc, nvvk::RingCommandPool& pool, const DrawItem* NV_RESTRICT drawItems, size_t drawCount)
   {
     const ResourcesVK* NV_RESTRICT res = m_resources;
 
-    VkCommandBuffer cmd = pool.createCommandBuffer(m_mode == MODE_CMD_MAINSUBMIT ? VK_COMMAND_BUFFER_LEVEL_SECONDARY :
-                                                                                   VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    VkCommandBuffer cmd = pool.createCommandBuffer(
+        m_mode == MODE_CMD_MAINSUBMIT ? VK_COMMAND_BUFFER_LEVEL_SECONDARY : VK_COMMAND_BUFFER_LEVEL_PRIMARY, false);
     res->cmdBegin(cmd, true, false, true);
 
     res->cmdDynamicState(cmd);
@@ -425,10 +426,8 @@ unsigned int RendererThreadedVK::RunThreadFrame(ThreadJob& job)
 
   size_t offset = 0;
 
-  int subframe = m_frame % nvvk::MAX_RING_FRAMES;
-
   job.resetFrame();
-  job.m_pool.setCycle(subframe);
+  job.m_pool.setCycle(m_cycleCurrent);
 
   if(m_workerBatched)
   {
@@ -545,10 +544,11 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
 {
   ResourcesVK* res = m_resources;
 
-  m_workingSet    = global.workingSet;
-  m_workerBatched = global.workerBatched;
-  m_numCurItems   = 0;
-  m_numEnqueues   = 0;
+  m_workingSet       = global.workingSet;
+  m_workerBatched    = global.workerBatched;
+  m_numCurItems      = 0;
+  m_numEnqueues      = 0;
+  m_cycleCurrent   = res->m_ringFences.getCycleIndex();
 
   stats.cmdBuffers = 0;
 
@@ -613,6 +613,8 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
     }
   }
 
+  m_frame++;
+
   NV_BARRIER();
 }
 
@@ -637,8 +639,6 @@ void RendererThreadedVK::draw(const Resources::Global& global, Stats& stats)
   }
   vkEndCommandBuffer(primary);
   res->submissionEnqueue(primary);
-
-  m_frame++;
 }
 
 

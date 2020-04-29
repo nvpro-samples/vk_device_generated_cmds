@@ -25,9 +25,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <algorithm>
 #include <imgui/imgui_impl_vk.h>
 #include <nvh/nvprint.hpp>
-#include <algorithm>
 
 #include "resources_vk.hpp"
 
@@ -65,13 +65,13 @@ void ResourcesVK::beginFrame()
   assert(!m_withinFrame);
   m_withinFrame           = true;
   m_submissionWaitForRead = true;
-  m_ringFences.wait();
+  m_ringFences.setCycleAndWait(m_frame);
   m_ringCmdPool.setCycle(m_ringFences.getCycleIndex());
 }
 
 void ResourcesVK::endFrame()
 {
-  submissionExecute(m_ringFences.advanceCycle(), true, true);
+  submissionExecute(m_ringFences.getFence(), true, true);
   assert(m_withinFrame);
   m_withinFrame = false;
 }
@@ -211,8 +211,8 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
   m_fboChangeID  = 0;
   m_pipeChangeID = 0;
 
-  m_context     = context;
-  m_swapChain   = swapChain;
+  m_context   = context;
+  m_swapChain = swapChain;
 
   m_device      = m_context->m_device;
   m_physical    = m_context->m_physicalDevice;
@@ -247,10 +247,10 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
     VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
     m_common.viewBuffer = m_memAllocator.createBuffer(sizeof(SceneData), usageFlags, m_common.viewAID);
-    m_common.viewInfo = {m_common.viewBuffer, 0, sizeof(SceneData)};
+    m_common.viewInfo   = {m_common.viewBuffer, 0, sizeof(SceneData)};
 
     m_common.animBuffer = m_memAllocator.createBuffer(sizeof(AnimationData), usageFlags, m_common.animAID);
-    m_common.animInfo = {m_common.animBuffer, 0, sizeof(AnimationData)};
+    m_common.animInfo   = {m_common.animBuffer, 0, sizeof(AnimationData)};
   }
 
   // animation
@@ -283,7 +283,7 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
     m_drawPush.init(m_device);
 
     m_drawPush.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+                          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     m_drawPush.initLayout();
 
     VkPushConstantRange pushRanges[2];
@@ -298,8 +298,8 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
   }
 
   {
-    ImGui::InitVK(m_context->m_device, m_context->m_physicalDevice, m_context->m_queueGCT, m_context->m_queueGCT.familyIndex,
-                  m_framebuffer.passUI);
+    ImGui::InitVK(m_context->m_device, m_context->m_physicalDevice, m_context->m_queueGCT,
+                  m_context->m_queueGCT.familyIndex, m_framebuffer.passUI);
   }
 
   return true;
@@ -402,7 +402,7 @@ void ResourcesVK::updatedPrograms()
 
 void ResourcesVK::deinitPrograms()
 {
-  m_shaderManager.deleteShaderModules();
+  m_shaderManager.deinit();
 }
 
 static VkSampleCountFlagBits getSampleCountFlagBits(int msaa)
@@ -569,8 +569,8 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   m_framebuffer.imgColor = m_framebuffer.memAllocator.createImage(cbImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   // depth stencil
-  VkFormat depthStencilFormat =  nvvk::findDepthStencilFormat(m_physical);
-  
+  VkFormat depthStencilFormat = nvvk::findDepthStencilFormat(m_physical);
+
   VkImageCreateInfo dsImageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   dsImageInfo.imageType         = VK_IMAGE_TYPE_2D;
   dsImageInfo.format            = depthStencilFormat;
@@ -654,8 +654,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   {
     VkCommandBuffer cmd = createTempCmdBuffer();
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, NULL, 0, NULL,
-                         m_swapChain->getImageCount(), m_swapChain->getImageMemoryBarriers());
+    m_swapChain->cmdUpdateBarriers(cmd);
 
     cmdImageTransition(cmd, m_framebuffer.imgColor, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT,
                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -808,31 +807,32 @@ void ResourcesVK::initPipes()
 
   m_gfxState = nvvk::GraphicsPipelineState();
 
-  m_gfxState.createInfo.flags = m_gfxStatePipelineFlags;
+  m_gfxGen.createInfo.flags = m_gfxStatePipelineFlags;
+  m_gfxGen.setDevice(m_device);
+  m_gfxState.addAttributeDescription(
+      nvvk::GraphicsPipelineState::makeVertexInputAttribute(VERTEX_POS_OCTNORMAL, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0));
+  m_gfxState.addBindingDescription(nvvk::GraphicsPipelineState::makeVertexInputBinding(0, sizeof(CadScene::Vertex)));
+  m_gfxState.inputAssemblyState.topology        = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  m_gfxState.depthStencilState.depthTestEnable  = true;
+  m_gfxState.depthStencilState.depthWriteEnable = true;
+  m_gfxState.depthStencilState.depthCompareOp   = VK_COMPARE_OP_LESS;
 
-  m_gfxState.addVertexInputAttribute(VERTEX_POS_OCTNORMAL, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0);
-  m_gfxState.addVertexInputBinding(0, sizeof(CadScene::Vertex));
-  m_gfxState.setPrimitiveTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  m_gfxState.addDynamicState(VK_DYNAMIC_STATE_VIEWPORT);
-  m_gfxState.addDynamicState(VK_DYNAMIC_STATE_SCISSOR);
-  m_gfxState.setAttachmentColorMask(0, VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT
-                                           | VK_COLOR_COMPONENT_A_BIT);
-  m_gfxState.setDepthTest(true, true, VK_COMPARE_OP_LESS);
-  m_gfxState.setRasterizationSamples(getSampleCountFlagBits(m_framebuffer.msaa));
+  m_gfxState.multisampleState.rasterizationSamples = getSampleCountFlagBits(m_framebuffer.msaa);
 
-  m_gfxState.setRenderPass(m_framebuffer.passPreserve);
+  m_gfxGen.setRenderPass(m_framebuffer.passPreserve);
 
   for(uint32_t i = 0; i < NUM_BINDINGMODES; i++)
   {
     for(uint32_t m = 0; m < NUM_MATERIAL_SHADERS; m++)
     {
-      m_gfxState.setPipelineLayout(i == 0 ? m_drawBind.getPipeLayout() : m_drawPush.getPipeLayout());
+      m_gfxGen.setLayout(i == 0 ? m_drawBind.getPipeLayout() : m_drawPush.getPipeLayout());
 
-      m_gfxState.clearShaderStages();
-      m_gfxState.addShaderStage(VK_SHADER_STAGE_VERTEX_BIT, drawShading[i].vertexShaders[m]);
-      m_gfxState.addShaderStage(VK_SHADER_STAGE_FRAGMENT_BIT, drawShading[i].fragmentShaders[m]);
-      result = vkCreateGraphicsPipelines(m_device, nullptr, 1, m_gfxState, nullptr, &drawShading[i].pipelines[m]);
-      assert(result == VK_SUCCESS);
+      m_gfxGen.clearShaders();
+      m_gfxGen.addShader(drawShading[i].vertexShaders[m], VK_SHADER_STAGE_VERTEX_BIT);
+      m_gfxGen.addShader(drawShading[i].fragmentShaders[m], VK_SHADER_STAGE_FRAGMENT_BIT);
+
+      drawShading[i].pipelines[m] = m_gfxGen.createPipeline();
+      assert(drawShading[i].pipelines[m] != VK_NULL_HANDLE);
     }
   }
 
@@ -996,7 +996,7 @@ VkCommandBuffer ResourcesVK::createCmdBuffer(VkCommandPool pool, bool singleshot
 VkCommandBuffer ResourcesVK::createTempCmdBuffer(bool primary /*=true*/, bool secondaryInClear /*=false*/)
 {
   VkCommandBuffer cmd =
-      m_ringCmdPool.createCommandBuffer(primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+      m_ringCmdPool.createCommandBuffer(primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY, false);
   cmdBegin(cmd, true, primary, secondaryInClear);
   return cmd;
 }
@@ -1029,7 +1029,7 @@ void ResourcesVK::resetTempResources()
 {
   synchronize();
   m_ringFences.reset();
-  m_ringCmdPool.reset(VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+  m_ringCmdPool.reset();
 }
 
 bool ResourcesVK::initScene(const CadScene& cadscene)
@@ -1040,7 +1040,7 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
 
   CadSceneVK::Config cfg;
   cfg.singleAllocation = USE_SINGLE_GEOMETRY_BUFFERS;
-  cfg.needAddress = true;
+  cfg.needAddress      = true;
   m_scene.init(cadscene, m_device, m_physical, m_queue, m_queueFamily, cfg);
 
 
@@ -1060,15 +1060,15 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     //////////////////////////////////////////////////////////////////////////
     std::vector<VkWriteDescriptorSet> updateDescriptors;
 
-    updateDescriptors.push_back(m_drawBind.at(DRAW_UBO_SCENE).getWrite(0, 0, &m_common.viewInfo));
-    updateDescriptors.push_back(m_drawBind.at(DRAW_UBO_MATRIX).getWrite(0, 0, &m_scene.m_infos.matricesSingle));
-    updateDescriptors.push_back(m_drawBind.at(DRAW_UBO_MATERIAL).getWrite(0, 0, &m_scene.m_infos.materialsSingle));
+    updateDescriptors.push_back(m_drawBind.at(DRAW_UBO_SCENE).makeWrite(0, 0, &m_common.viewInfo));
+    updateDescriptors.push_back(m_drawBind.at(DRAW_UBO_MATRIX).makeWrite(0, 0, &m_scene.m_infos.matricesSingle));
+    updateDescriptors.push_back(m_drawBind.at(DRAW_UBO_MATERIAL).makeWrite(0, 0, &m_scene.m_infos.materialsSingle));
 
-    updateDescriptors.push_back(m_drawPush.getWrite(0, DRAW_UBO_SCENE, &m_common.viewInfo));
+    updateDescriptors.push_back(m_drawPush.makeWrite(0, DRAW_UBO_SCENE, &m_common.viewInfo));
 
-    updateDescriptors.push_back(m_anim.getWrite(0, ANIM_UBO, &m_common.animInfo));
-    updateDescriptors.push_back(m_anim.getWrite(0, ANIM_SSBO_MATRIXOUT, &m_scene.m_infos.matrices));
-    updateDescriptors.push_back(m_anim.getWrite(0, ANIM_SSBO_MATRIXORIG, &m_scene.m_infos.matricesOrig));
+    updateDescriptors.push_back(m_anim.makeWrite(0, ANIM_UBO, &m_common.animInfo));
+    updateDescriptors.push_back(m_anim.makeWrite(0, ANIM_SSBO_MATRIXOUT, &m_scene.m_infos.matrices));
+    updateDescriptors.push_back(m_anim.makeWrite(0, ANIM_SSBO_MATRIXORIG, &m_scene.m_infos.matricesOrig));
 
     vkUpdateDescriptorSets(m_device, updateDescriptors.size(), updateDescriptors.data(), 0, 0);
   }

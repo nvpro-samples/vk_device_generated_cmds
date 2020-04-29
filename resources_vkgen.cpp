@@ -34,7 +34,7 @@ bool ResourcesVKGen::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nv
 {
   bool valid = ResourcesVK::init(context, swapChain, profiler);
   return valid && m_context->hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME)
-               && m_context->hasDeviceExtension(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+         && m_context->hasDeviceExtension(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
 }
 
 void ResourcesVKGen::deinit()
@@ -69,11 +69,11 @@ void ResourcesVKGen::initPipes()
   shaderStages.resize(NUM_MATERIAL_SHADERS * 2);
   shaderGroups.reserve(NUM_MATERIAL_SHADERS);
 
-  m_gfxState.createInfo.flags = VK_PIPELINE_CREATE_INDIRECT_BINDABLE_BIT_NV;
-  m_gfxState.clearShaderStages();
-  m_gfxState.setPipelineLayout(m_drawPush.getPipeLayout());
-  m_gfxState.addShaderStage(VK_SHADER_STAGE_VERTEX_BIT, drawShading[BINDINGMODE_PUSHADDRESS].vertexShaders[0]);
-  m_gfxState.addShaderStage(VK_SHADER_STAGE_FRAGMENT_BIT, drawShading[BINDINGMODE_PUSHADDRESS].fragmentShaders[0]);
+  m_gfxGen.createInfo.flags = VK_PIPELINE_CREATE_INDIRECT_BINDABLE_BIT_NV;
+  m_gfxGen.clearShaders();
+  m_gfxGen.setLayout(m_drawPush.getPipeLayout());
+  m_gfxGen.addShader(drawShading[BINDINGMODE_PUSHADDRESS].vertexShaders[0], VK_SHADER_STAGE_VERTEX_BIT);
+  m_gfxGen.addShader(drawShading[BINDINGMODE_PUSHADDRESS].fragmentShaders[0], VK_SHADER_STAGE_FRAGMENT_BIT);
 
   for(uint32_t m = 0; m < (useReferences ? 1 : NUM_MATERIAL_SHADERS); m++)
   {
@@ -92,33 +92,35 @@ void ResourcesVKGen::initPipes()
     VkGraphicsShaderGroupCreateInfoNV group = {VK_STRUCTURE_TYPE_GRAPHICS_SHADER_GROUP_CREATE_INFO_NV};
     group.stageCount                        = 2;
     group.pStages                           = &shaderStages[m * 2];
-    group.pVertexInputState                 = m_gfxState.createInfo.pVertexInputState;
-    group.pTessellationState                = m_gfxState.createInfo.pTessellationState;
+    group.pVertexInputState                 = m_gfxGen.createInfo.pVertexInputState;
+    group.pTessellationState                = m_gfxGen.createInfo.pTessellationState;
 
     shaderGroups.push_back(group);
   }
 
   std::vector<VkPipeline> referencedPipelines;
-  if (useReferences) {
-    for(uint32_t m = 1; m < NUM_MATERIAL_SHADERS; m++) 
+  if(useReferences)
+  {
+    for(uint32_t m = 1; m < NUM_MATERIAL_SHADERS; m++)
     {
       referencedPipelines.push_back(drawShading[BINDINGMODE_PUSHADDRESS].pipelines[m]);
     }
-    groupsCreateInfo.pPipelines = referencedPipelines.data();
+    groupsCreateInfo.pPipelines    = referencedPipelines.data();
     groupsCreateInfo.pipelineCount = (uint32_t)referencedPipelines.size();
   }
 
   groupsCreateInfo.groupCount = (uint32_t)shaderGroups.size();
   groupsCreateInfo.pGroups    = shaderGroups.data();
 
-  m_gfxState.pushBaseNext(&groupsCreateInfo);
 
-  VkResult result = vkCreateGraphicsPipelines(m_device, nullptr, 1, m_gfxState, nullptr, &m_drawGroupsPipeline);
-  assert(result == VK_SUCCESS);
+  m_gfxGen.createInfo.pNext = &groupsCreateInfo;
 
-  m_gfxState.popBaseNext();
-  m_gfxState.createInfo.flags = 0;
-  m_gfxStatePipelineFlags = 0;
+  m_drawGroupsPipeline = m_gfxGen.createPipeline();
+  assert(m_drawGroupsPipeline != VK_NULL_HANDLE);
+
+  m_gfxGen.createInfo.pNext = nullptr;
+  m_gfxGen.createInfo.flags = 0;
+  m_gfxStatePipelineFlags   = 0;
 }
 
 

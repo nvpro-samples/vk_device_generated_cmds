@@ -139,12 +139,13 @@ public:
   uint32_t                     m_queueFamily;
   nvvk::DeviceMemoryAllocator  m_memAllocator;
   nvvk::RingFences             m_ringFences;
-  nvvk::RingCmdPool            m_ringCmdPool;
+  nvvk::RingCommandPool        m_ringCmdPool;
   nvvk::BatchSubmission        m_submission;
   bool                         m_submissionWaitForRead;
 
   VkPipelineCreateFlags                        m_gfxStatePipelineFlags = 0; // hack for derived overrides
   nvvk::GraphicsPipelineState                  m_gfxState;
+  nvvk::GraphicsPipelineGenerator              m_gfxGen{m_gfxState};
   nvvk::TDescriptorSetContainer<DRAW_UBOS_NUM> m_drawBind;
   nvvk::DescriptorSetContainer                 m_drawPush;
   nvvk::DescriptorSetContainer                 m_anim;

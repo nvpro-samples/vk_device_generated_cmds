@@ -167,9 +167,9 @@ private:
     m_draw.sequencesCount = drawCount;
 
     // compute input buffer space requirements
-    VkPhysicalDeviceProperties2                   phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceProperties2                         phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV genProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV};
-    phyProps.pNext                                         = &genProps;
+    phyProps.pNext                                               = &genProps;
     vkGetPhysicalDeviceProperties2(res->m_physical, &phyProps);
 
     size_t alignSeqIndexMask = genProps.minSequencesIndexBufferOffsetAlignment - 1;
@@ -190,8 +190,8 @@ private:
     m_draw.inputBuffer = m_memoryAllocator.createBuffer(totalSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, aid);
 
     // setup staging buffer for filling
-    nvvk::ScopeStagingBuffer   staging(res->m_device, res->m_physical);
-    nvvk::ScopeSubmitCmdBuffer cmd(res->m_device, res->m_queue, res->m_queueFamily);
+    nvvk::StagingMemoryManager staging(res->m_device, res->m_physical);
+    nvvk::ScopeCommandBuffer   cmd(res->m_device, res->m_queueFamily, res->m_queue);
 
     uint8_t* mapping = staging.cmdToBufferT<uint8_t>(cmd, m_draw.inputBuffer, 0, totalSize);
 
@@ -263,9 +263,9 @@ private:
     m_draw.sequencesCount = drawCount;
 
     // compute input buffer space requirements
-    VkPhysicalDeviceProperties2                   phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceProperties2                         phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV genProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV};
-    phyProps.pNext                                         = &genProps;
+    phyProps.pNext                                               = &genProps;
     vkGetPhysicalDeviceProperties2(res->m_physical, &phyProps);
 
     size_t alignSeqIndexMask = genProps.minSequencesIndexBufferOffsetAlignment - 1;
@@ -299,8 +299,8 @@ private:
     m_draw.inputBuffer = m_memoryAllocator.createBuffer(totalSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, aid);
 
     // setup staging buffer for filling
-    nvvk::ScopeStagingBuffer   staging(res->m_device, res->m_physical);
-    nvvk::ScopeSubmitCmdBuffer cmd(res->m_device, res->m_queue, res->m_queueFamily);
+    nvvk::StagingMemoryManager staging(res->m_device, res->m_physical);
+    nvvk::ScopeCommandBuffer   cmd(res->m_device, res->m_queueFamily, res->m_queue);
 
     uint8_t* mapping = staging.cmdToBufferT<uint8_t>(cmd, m_draw.inputBuffer, 0, totalSize);
 
@@ -411,7 +411,7 @@ private:
     vkGetGeneratedCommandsMemoryRequirementsNV(res->m_device, &memInfo, &memReqs);
 
     m_draw.preprocessSize = memReqs.memoryRequirements.size;
-    m_draw.preprocessBuffer = nvvk::createBuffer(res->m_device, m_draw.preprocessSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+    m_draw.preprocessBuffer = nvvk::createBuffer(res->m_device,nvvk::makeBufferCreateInfo(m_draw.preprocessSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT));
 
     // attempt device local first
     nvvk::AllocationID aid = m_memoryAllocator.alloc(memReqs.memoryRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
