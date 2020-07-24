@@ -361,12 +361,13 @@ bool ResourcesVK::initPrograms(const std::string& path, const std::string& prepe
                             + nvh::ShaderFileManager::format("#define SHADER_PERMUTATION %d\n", m)
                             + nvh::ShaderFileManager::format("#define UNIFORMS_TECHNIQUE %d\n", i);
 
-      drawShading[i].vertexIDs[m] = m_shaderManager.createShaderModule(VK_SHADER_STAGE_VERTEX_BIT, "scene.vert.glsl", defines);
-      drawShading[i].fragmentIDs[m] = m_shaderManager.createShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, "scene.frag.glsl", defines);
+      m_drawShading[i].vertexIDs[m] = m_shaderManager.createShaderModule(VK_SHADER_STAGE_VERTEX_BIT, "scene.vert.glsl", defines);
+      m_drawShading[i].fragmentIDs[m] =
+          m_shaderManager.createShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, "scene.frag.glsl", defines);
     }
   }
 
-  animShading.shaderModuleID = m_shaderManager.createShaderModule(VK_SHADER_STAGE_COMPUTE_BIT, "animation.comp.glsl");
+  m_animShading.shaderModuleID = m_shaderManager.createShaderModule(VK_SHADER_STAGE_COMPUTE_BIT, "animation.comp.glsl");
 
   bool valid = m_shaderManager.areShaderModulesValid();
 
@@ -391,11 +392,11 @@ void ResourcesVK::updatedPrograms()
   {
     for(uint32_t m = 0; m < NUM_MATERIAL_SHADERS; m++)
     {
-      drawShading[i].vertexShaders[m]   = m_shaderManager.get(drawShading[i].vertexIDs[m]);
-      drawShading[i].fragmentShaders[m] = m_shaderManager.get(drawShading[i].fragmentIDs[m]);
+      m_drawShading[i].vertexShaders[m]   = m_shaderManager.get(m_drawShading[i].vertexIDs[m]);
+      m_drawShading[i].fragmentShaders[m] = m_shaderManager.get(m_drawShading[i].fragmentIDs[m]);
     }
   }
-  animShading.shader = m_shaderManager.get(animShading.shaderModuleID);
+  m_animShading.shader = m_shaderManager.get(m_animShading.shaderModuleID);
 
   initPipes();
 }
@@ -828,11 +829,11 @@ void ResourcesVK::initPipes()
       m_gfxGen.setLayout(i == 0 ? m_drawBind.getPipeLayout() : m_drawPush.getPipeLayout());
 
       m_gfxGen.clearShaders();
-      m_gfxGen.addShader(drawShading[i].vertexShaders[m], VK_SHADER_STAGE_VERTEX_BIT);
-      m_gfxGen.addShader(drawShading[i].fragmentShaders[m], VK_SHADER_STAGE_FRAGMENT_BIT);
+      m_gfxGen.addShader(m_drawShading[i].vertexShaders[m], VK_SHADER_STAGE_VERTEX_BIT);
+      m_gfxGen.addShader(m_drawShading[i].fragmentShaders[m], VK_SHADER_STAGE_FRAGMENT_BIT);
 
-      drawShading[i].pipelines[m] = m_gfxGen.createPipeline();
-      assert(drawShading[i].pipelines[m] != VK_NULL_HANDLE);
+      m_drawShading[i].pipelines[m] = m_gfxGen.createPipeline();
+      assert(m_drawShading[i].pipelines[m] != VK_NULL_HANDLE);
     }
   }
 
@@ -843,11 +844,11 @@ void ResourcesVK::initPipes()
     VkPipelineShaderStageCreateInfo stageInfo    = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stageInfo.stage                              = VK_SHADER_STAGE_COMPUTE_BIT;
     stageInfo.pName                              = "main";
-    stageInfo.module                             = animShading.shader;
+    stageInfo.module                             = m_animShading.shader;
 
     pipelineInfo.layout = m_anim.getPipeLayout();
     pipelineInfo.stage  = stageInfo;
-    result = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &animShading.pipeline);
+    result = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &m_animShading.pipeline);
     assert(result == VK_SUCCESS);
   }
 }
@@ -858,12 +859,12 @@ void ResourcesVK::deinitPipes()
   {
     for(uint32_t m = 0; m < NUM_MATERIAL_SHADERS; m++)
     {
-      vkDestroyPipeline(m_device, drawShading[i].pipelines[m], NULL);
-      drawShading[i].pipelines[m] = VK_NULL_HANDLE;
+      vkDestroyPipeline(m_device, m_drawShading[i].pipelines[m], NULL);
+      m_drawShading[i].pipelines[m] = VK_NULL_HANDLE;
     }
   }
-  vkDestroyPipeline(m_device, animShading.pipeline, NULL);
-  animShading.pipeline = VK_NULL_HANDLE;
+  vkDestroyPipeline(m_device, m_animShading.pipeline, NULL);
+  m_animShading.pipeline = VK_NULL_HANDLE;
 }
 
 void ResourcesVK::cmdDynamicState(VkCommandBuffer cmd) const
@@ -1096,18 +1097,29 @@ void ResourcesVK::animation(const Global& global)
   VkCommandBuffer cmd = createTempCmdBuffer();
 
   vkCmdUpdateBuffer(cmd, m_common.animBuffer, 0, sizeof(AnimationData), (const uint32_t*)&global.animUbo);
+  {
+    VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    memBarrier.srcAccessMask         = VK_ACCESS_TRANSFER_WRITE_BIT;
+    memBarrier.dstAccessMask         = VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+    memBarrier.buffer                = m_common.animBuffer;
+    memBarrier.size                  = sizeof(AnimationData);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_FALSE, 0, NULL,
+                         1, &memBarrier, 0, NULL);
+  }
 
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, animShading.pipeline);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_animShading.pipeline);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_anim.getPipeLayout(), 0, 1, m_anim.getSets(), 0, 0);
   vkCmdDispatch(cmd, (m_numMatrices + ANIMATION_WORKGROUPSIZE - 1) / ANIMATION_WORKGROUPSIZE, 1, 1);
 
-  VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  memBarrier.dstAccessMask         = VK_ACCESS_SHADER_WRITE_BIT;
-  memBarrier.srcAccessMask         = VK_ACCESS_UNIFORM_READ_BIT;
-  memBarrier.buffer                = m_scene.m_buffers.matrices;
-  memBarrier.size                  = sizeof(AnimationData) * m_numMatrices;
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_FALSE, 0, NULL,
-                       1, &memBarrier, 0, NULL);
+  {
+    VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    memBarrier.srcAccessMask         = VK_ACCESS_SHADER_WRITE_BIT;
+    memBarrier.dstAccessMask         = VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+    memBarrier.buffer                = m_scene.m_buffers.matrices;
+    memBarrier.size                  = sizeof(CadScene::MatrixNode) * m_numMatrices;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_FALSE, 0,
+                         NULL, 1, &memBarrier, 0, NULL);
+  }
 
   vkEndCommandBuffer(cmd);
 

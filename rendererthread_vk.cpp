@@ -234,7 +234,7 @@ private:
 
       if(di.shaderIndex != lastShader)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->drawShading[bindingMode].pipelines[di.shaderIndex]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawShading[bindingMode].pipelines[di.shaderIndex]);
       }
 
       if(lastGeometry != di.geometryIndex)
@@ -544,11 +544,11 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
 {
   ResourcesVK* res = m_resources;
 
-  m_workingSet       = global.workingSet;
-  m_workerBatched    = global.workerBatched;
-  m_numCurItems      = 0;
-  m_numEnqueues      = 0;
-  m_cycleCurrent   = res->m_ringFences.getCycleIndex();
+  m_workingSet    = global.workingSet;
+  m_workerBatched = global.workerBatched;
+  m_numCurItems   = 0;
+  m_numEnqueues   = 0;
+  m_cycleCurrent  = res->m_ringFences.getCycleIndex();
 
   stats.cmdBuffers = 0;
 

@@ -72,8 +72,8 @@ void ResourcesVKGen::initPipes()
   m_gfxGen.createInfo.flags = VK_PIPELINE_CREATE_INDIRECT_BINDABLE_BIT_NV;
   m_gfxGen.clearShaders();
   m_gfxGen.setLayout(m_drawPush.getPipeLayout());
-  m_gfxGen.addShader(drawShading[BINDINGMODE_PUSHADDRESS].vertexShaders[0], VK_SHADER_STAGE_VERTEX_BIT);
-  m_gfxGen.addShader(drawShading[BINDINGMODE_PUSHADDRESS].fragmentShaders[0], VK_SHADER_STAGE_FRAGMENT_BIT);
+  m_gfxGen.addShader(m_drawShading[BINDINGMODE_PUSHADDRESS].vertexShaders[0], VK_SHADER_STAGE_VERTEX_BIT);
+  m_gfxGen.addShader(m_drawShading[BINDINGMODE_PUSHADDRESS].fragmentShaders[0], VK_SHADER_STAGE_FRAGMENT_BIT);
 
   for(uint32_t m = 0; m < (useReferences ? 1 : NUM_MATERIAL_SHADERS); m++)
   {
@@ -81,13 +81,13 @@ void ResourcesVKGen::initPipes()
     vstage                                  = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     vstage.pName                            = "main";
     vstage.stage                            = VK_SHADER_STAGE_VERTEX_BIT;
-    vstage.module                           = drawShading[BINDINGMODE_PUSHADDRESS].vertexShaders[m];
+    vstage.module                           = m_drawShading[BINDINGMODE_PUSHADDRESS].vertexShaders[m];
 
     VkPipelineShaderStageCreateInfo& fstage = shaderStages[m * 2 + 1];
     fstage                                  = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     fstage.pName                            = "main";
     fstage.stage                            = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fstage.module                           = drawShading[BINDINGMODE_PUSHADDRESS].fragmentShaders[m];
+    fstage.module                           = m_drawShading[BINDINGMODE_PUSHADDRESS].fragmentShaders[m];
 
     VkGraphicsShaderGroupCreateInfoNV group = {VK_STRUCTURE_TYPE_GRAPHICS_SHADER_GROUP_CREATE_INFO_NV};
     group.stageCount                        = 2;
@@ -103,7 +103,7 @@ void ResourcesVKGen::initPipes()
   {
     for(uint32_t m = 1; m < NUM_MATERIAL_SHADERS; m++)
     {
-      referencedPipelines.push_back(drawShading[BINDINGMODE_PUSHADDRESS].pipelines[m]);
+      referencedPipelines.push_back(m_drawShading[BINDINGMODE_PUSHADDRESS].pipelines[m]);
     }
     groupsCreateInfo.pPipelines    = referencedPipelines.data();
     groupsCreateInfo.pipelineCount = (uint32_t)referencedPipelines.size();

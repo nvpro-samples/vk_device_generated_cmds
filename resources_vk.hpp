@@ -109,18 +109,18 @@ public:
   struct
   {
     nvvk::ShaderModuleID shaderModuleID;
-    VkShaderModule                            shader;
-    VkPipeline                                pipeline;
-  } animShading;
+    VkShaderModule       shader;
+    VkPipeline           pipeline;
+  } m_animShading;
 
   struct
   {
     nvvk::ShaderModuleID vertexIDs[NUM_MATERIAL_SHADERS];
     nvvk::ShaderModuleID fragmentIDs[NUM_MATERIAL_SHADERS];
-    VkShaderModule                            vertexShaders[NUM_MATERIAL_SHADERS];
-    VkShaderModule                            fragmentShaders[NUM_MATERIAL_SHADERS];
-    VkPipeline                                pipelines[NUM_MATERIAL_SHADERS];
-  } drawShading[NUM_BINDINGMODES];
+    VkShaderModule       vertexShaders[NUM_MATERIAL_SHADERS];
+    VkShaderModule       fragmentShaders[NUM_MATERIAL_SHADERS];
+    VkPipeline           pipelines[NUM_MATERIAL_SHADERS];
+  } m_drawShading[NUM_BINDINGMODES];
 
 
   bool                      m_withinFrame = false;
@@ -129,21 +129,21 @@ public:
   FrameBuffer m_framebuffer;
   Common      m_common;
 
-  nvvk::SwapChain*            m_swapChain;
-  nvvk::Context*              m_context;
-  nvvk::ProfilerVK            m_profilerVK;
+  nvvk::SwapChain* m_swapChain;
+  nvvk::Context*   m_context;
+  nvvk::ProfilerVK m_profilerVK;
 
-  VkDevice                     m_device    = VK_NULL_HANDLE;
-  VkPhysicalDevice             m_physical;
-  VkQueue                      m_queue;
-  uint32_t                     m_queueFamily;
-  nvvk::DeviceMemoryAllocator  m_memAllocator;
-  nvvk::RingFences             m_ringFences;
-  nvvk::RingCommandPool        m_ringCmdPool;
-  nvvk::BatchSubmission        m_submission;
-  bool                         m_submissionWaitForRead;
+  VkDevice                    m_device = VK_NULL_HANDLE;
+  VkPhysicalDevice            m_physical;
+  VkQueue                     m_queue;
+  uint32_t                    m_queueFamily;
+  nvvk::DeviceMemoryAllocator m_memAllocator;
+  nvvk::RingFences            m_ringFences;
+  nvvk::RingCommandPool       m_ringCmdPool;
+  nvvk::BatchSubmission       m_submission;
+  bool                        m_submissionWaitForRead;
 
-  VkPipelineCreateFlags                        m_gfxStatePipelineFlags = 0; // hack for derived overrides
+  VkPipelineCreateFlags                        m_gfxStatePipelineFlags = 0;  // hack for derived overrides
   nvvk::GraphicsPipelineState                  m_gfxState;
   nvvk::GraphicsPipelineGenerator              m_gfxGen{m_gfxState};
   nvvk::TDescriptorSetContainer<DRAW_UBOS_NUM> m_drawBind;
@@ -162,7 +162,7 @@ public:
 
   virtual void initPipes();
   void         deinitPipes();
-  bool         hasPipes() { return animShading.pipeline != 0; }
+  bool         hasPipes() { return m_animShading.pipeline != 0; }
 
   bool initPrograms(const std::string& path, const std::string& prepend) override;
   void reloadPrograms(const std::string& prepend) override;
@@ -189,7 +189,7 @@ public:
 
   VkRenderPass createPass(bool clear, int msaa);
   VkRenderPass createPassUI(int msaa);
-  
+
   VkCommandBuffer createCmdBuffer(VkCommandPool pool, bool singleshot, bool primary, bool secondaryInClear) const;
   VkCommandBuffer createTempCmdBuffer(bool primary = true, bool secondaryInClear = false);
 

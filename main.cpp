@@ -269,7 +269,7 @@ namespace generatedcmds
       }
       m_resources = Renderer::getRegistry()[type]->resources();
       bool valid = m_resources->init(&m_context, &m_swapChain, &m_profiler);
-      valid = valid && m_resources->initFramebuffer(m_windowState.m_viewSize[0],m_windowState.m_viewSize[1],m_tweak.msaa, getVsync());
+      valid = valid && m_resources->initFramebuffer(m_windowState.m_swapSize[0],m_windowState.m_swapSize[1],m_tweak.msaa, getVsync());
       valid = valid && m_resources->initPrograms(exePath(), std::string());
       valid = valid && m_resources->initScene(m_scene);
       m_resources->m_frame = 0;
@@ -343,7 +343,7 @@ namespace generatedcmds
     m_renderer = NULL;
     m_resources = NULL;
 
-    ImGuiH::Init(m_windowState.m_viewSize[0], m_windowState.m_viewSize[1], this);
+    ImGuiH::Init(m_windowState.m_winSize[0], m_windowState.m_winSize[1], this);
 
     bool validated(true);
     validated = validated && initProgram();
@@ -508,14 +508,14 @@ namespace generatedcmds
 
   void Sample::think(double time)
   {
-    int width   = m_windowState.m_viewSize[0];
-    int height  = m_windowState.m_viewSize[1];
+    int width   = m_windowState.m_swapSize[0];
+    int height  = m_windowState.m_swapSize[1];
     
     if (m_useUI) {
       processUI(width, height, time);
     }
 
-    m_control.processActions(m_windowState.m_viewSize,
+    m_control.processActions(m_windowState.m_winSize,
       nvmath::vec2f(m_windowState.m_mouseCurrent[0],m_windowState.m_mouseCurrent[1]),
       m_windowState.m_mouseButtonFlags, m_windowState.m_mouseWheel);
 
