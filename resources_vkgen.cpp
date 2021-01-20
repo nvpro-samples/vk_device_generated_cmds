@@ -33,8 +33,7 @@ namespace generatedcmds {
 bool ResourcesVKGen::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::Profiler* profiler)
 {
   bool valid = ResourcesVK::init(context, swapChain, profiler);
-  return valid && m_context->hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME)
-         && m_context->hasDeviceExtension(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+  return valid && m_context->hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
 }
 
 void ResourcesVKGen::deinit()
@@ -49,7 +48,7 @@ void ResourcesVKGen::initPipes()
 {
   // the most likely use-case is that you want to re-use existing
   // graphics pipelines
-  bool useReferences = true;
+  bool useReferences = USE_PIPELINE_REFERENCES != 0;
 
   // If we use references make sure those pipelines were created with this flag activated.
   // This member here influences the parent class initPipes.

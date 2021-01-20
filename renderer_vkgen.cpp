@@ -68,7 +68,6 @@ public:
     bool isAvailable(const nvvk::Context& context) const
     {
       return context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME)
-             && context.hasDeviceExtension(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
              && load_VK_NV_device_generated_commands(context.m_instance, vkGetInstanceProcAddr, context.m_device, vkGetDeviceProcAddr);
     }
     const char* name() const { return "generated cmds"; }
@@ -89,7 +88,6 @@ public:
     bool isAvailable(const nvvk::Context& context) const
     {
       return context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME)
-             && context.hasDeviceExtension(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
              && load_VK_NV_device_generated_commands(context.m_instance, vkGetInstanceProcAddr, context.m_device, vkGetDeviceProcAddr);
     }
     const char* name() const { return "preprocess,generated cmds"; }
@@ -195,12 +193,17 @@ private:
 
     uint8_t* mapping = staging.cmdToBufferT<uint8_t>(cmd, m_draw.inputBuffer, 0, totalSize);
 
-
-    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_CREATE_INFO_EXT};
-    addressInfo.buffer                       = sceneVK.m_buffers.matrices;
-    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo);
-    addressInfo.buffer                       = sceneVK.m_buffers.materials;
-    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo);
+#if USE_VULKAN_1_2_BUFFER_ADDRESS
+    VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+    #define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddress
+#else
+    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT};
+    #define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddressEXT
+#endif
+    addressInfo.buffer                    = sceneVK.m_buffers.matrices;
+    VkDeviceAddress matrixAddress         = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
+    addressInfo.buffer                    = sceneVK.m_buffers.materials;
+    VkDeviceAddress materialAddress       = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
 
     // fill sequence
     DrawSequence* sequences = (DrawSequence*)mapping;
@@ -214,12 +217,12 @@ private:
       seq.shader.groupIndex = di.shaderIndex;
 
       addressInfo.buffer    = vkgeo.ibo.buffer;
-      seq.ibo.bufferAddress = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo) + vkgeo.ibo.offset;
+      seq.ibo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + vkgeo.ibo.offset;
       seq.ibo.size          = vkgeo.ibo.range;
       seq.ibo.indexType     = VK_INDEX_TYPE_UINT32;
 
       addressInfo.buffer    = vkgeo.vbo.buffer;
-      seq.vbo.bufferAddress = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo) + vkgeo.vbo.offset;
+      seq.vbo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + vkgeo.vbo.offset;
       seq.vbo.size          = vkgeo.vbo.range;
       seq.vbo.stride        = sizeof(CadScene::Vertex);
 
@@ -311,11 +314,17 @@ private:
     VkDeviceAddress*                     pushMaterials = (VkDeviceAddress*)(mapping + materialOffset);
     VkDrawIndexedIndirectCommand*        draws         = (VkDrawIndexedIndirectCommand*)(mapping + drawOffset);
 
-    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_CREATE_INFO_EXT};
+#if USE_VULKAN_1_2_BUFFER_ADDRESS
+    VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddress
+#else
+    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT};
+#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddressEXT
+#endif
     addressInfo.buffer                       = scene.m_buffers.matrices;
-    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo);
+    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
     addressInfo.buffer                       = scene.m_buffers.materials;
-    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo);
+    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
 
     // let's record all token inputs for every drawcall
     for(unsigned int i = 0; i < drawCount; i++)
@@ -327,13 +336,13 @@ private:
 
       VkBindIndexBufferIndirectCommandNV& ibo = ibos[i];
       addressInfo.buffer                      = geo.ibo.buffer;
-      ibo.bufferAddress = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo) + geo.ibo.offset;
+      ibo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + geo.ibo.offset;
       ibo.size          = geo.ibo.range;
       ibo.indexType     = VK_INDEX_TYPE_UINT32;
 
       VkBindVertexBufferIndirectCommandNV& vbo = vbos[i];
       addressInfo.buffer                       = geo.vbo.buffer;
-      vbo.bufferAddress = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo) + geo.vbo.offset;
+      vbo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + geo.vbo.offset;
       vbo.size          = geo.vbo.range;
       vbo.stride        = sizeof(CadScene::Vertex);
 
@@ -411,7 +420,8 @@ private:
     vkGetGeneratedCommandsMemoryRequirementsNV(res->m_device, &memInfo, &memReqs);
 
     m_draw.preprocessSize = memReqs.memoryRequirements.size;
-    m_draw.preprocessBuffer = nvvk::createBuffer(res->m_device,nvvk::makeBufferCreateInfo(m_draw.preprocessSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT));
+    m_draw.preprocessBuffer =
+        nvvk::createBuffer(res->m_device, nvvk::makeBufferCreateInfo(m_draw.preprocessSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT));
 
     // attempt device local first
     nvvk::AllocationID aid = m_memoryAllocator.alloc(memReqs.memoryRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -432,6 +442,28 @@ private:
     vkDestroyBuffer(m_resources->m_device, m_draw.preprocessBuffer, NULL);
     m_memoryAllocator.freeAll();
     m_memoryAllocator.deinit();
+  }
+
+  void initDrawSecondary()
+  {
+    {
+      VkResult                result;
+      VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+      cmdPoolInfo.queueFamilyIndex        = 0;
+      result                              = vkCreateCommandPool(m_resources->m_device, &cmdPoolInfo, NULL, &m_cmdPool);
+      assert(result == VK_SUCCESS);
+    }
+    {
+      m_draw.cmdBuffer = m_resources->createCmdBuffer(m_cmdPool, false, false, false);
+      cmdExecute(m_draw.cmdBuffer, VK_TRUE);
+      vkEndCommandBuffer(m_draw.cmdBuffer);
+    }
+  }
+
+  void deinitDrawSecondary()
+  {
+    vkFreeCommandBuffers(m_resources->m_device, m_cmdPool, 1, &m_draw.cmdBuffer);
+    vkDestroyCommandPool(m_resources->m_device, m_cmdPool, NULL);
   }
 };
 
@@ -563,18 +595,9 @@ void RendererVKGen::init(const CadScene* NV_RESTRICT scene, Resources* resources
   }
   setupPreprocess(stats);
 
-  {
-    VkResult                result;
-    VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-    cmdPoolInfo.queueFamilyIndex        = 0;
-    result                              = vkCreateCommandPool(res->m_device, &cmdPoolInfo, NULL, &m_cmdPool);
-    assert(result == VK_SUCCESS);
-  }
   if(m_mode == MODE_PREPROCESS)
   {
-    m_draw.cmdBuffer = res->createCmdBuffer(m_cmdPool, false, false, false);
-    cmdExecute(m_draw.cmdBuffer, VK_TRUE);
-    vkEndCommandBuffer(m_draw.cmdBuffer);
+    initDrawSecondary();
   }
 }
 
@@ -582,9 +605,8 @@ void RendererVKGen::deinit()
 {
   if(m_mode == MODE_PREPROCESS)
   {
-    vkFreeCommandBuffers(m_resources->m_device, m_cmdPool, 1, &m_draw.cmdBuffer);
+    deinitDrawSecondary();
   }
-  vkDestroyCommandPool(m_resources->m_device, m_cmdPool, NULL);
 
   deleteData();
   deinitGenerator();
@@ -618,16 +640,6 @@ void RendererVKGen::cmdExecute(VkCommandBuffer cmd, VkBool32 isPreprocessed)
   const CadSceneVK& sceneVK = res->m_scene;
 
   res->cmdDynamicState(cmd);
-
-  if(isPreprocessed)
-  {
-    // we need to ensure the preprocessing of commands has completed, before we can execute them
-    VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    barrier.srcAccessMask   = VK_ACCESS_COMMAND_PREPROCESS_WRITE_BIT_NV;
-    barrier.dstAccessMask   = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1,
-                         &barrier, 0, NULL, 0, NULL);
-  }
 
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawPush.getPipeLayout(), 0, 1,
                           res->m_drawPush.getSets(), 0, NULL);
@@ -682,10 +694,8 @@ void RendererVKGen::draw(const Resources::Global& global, Stats& stats)
   {
     if(m_draw.pipeChangeID != res->m_pipeChangeID || m_draw.fboChangeID != res->m_fboChangeID)
     {
-      vkResetCommandBuffer(m_draw.cmdBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-      res->cmdBegin(m_draw.cmdBuffer, false, false, false);
-      cmdExecute(m_draw.cmdBuffer, VK_TRUE);
-      vkEndCommandBuffer(m_draw.cmdBuffer);
+      deinitDrawSecondary();
+      initDrawSecondary();
     }
 
     m_draw.fboChangeID  = res->m_fboChangeID;
@@ -702,6 +712,15 @@ void RendererVKGen::draw(const Resources::Global& global, Stats& stats)
     {
       nvvk::ProfilerVK::Section profile(res->m_profilerVK, "Pre", primary);
       cmdPreprocess(primary);
+
+      {
+        // we need to ensure the preprocessing of commands has completed, before we can execute them
+        VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        barrier.srcAccessMask   = VK_ACCESS_COMMAND_PREPROCESS_WRITE_BIT_NV;
+        barrier.dstAccessMask   = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        vkCmdPipelineBarrier(primary, VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1,
+          &barrier, 0, NULL, 0, NULL);
+      }
     }
     {
       nvvk::ProfilerVK::Section profile(res->m_profilerVK, "Draw", primary);
@@ -709,7 +728,7 @@ void RendererVKGen::draw(const Resources::Global& global, Stats& stats)
       res->cmdPipelineBarrier(primary);
 
       // clear via pass
-      res->cmdBeginRenderPass(primary, true, true);
+      res->cmdBeginRenderPass(primary, true, m_mode != MODE_DIRECT);
       if(m_mode == MODE_DIRECT)
       {
         cmdExecute(primary, VK_FALSE);

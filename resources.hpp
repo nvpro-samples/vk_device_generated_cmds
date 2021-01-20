@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include "config.h"
 #include "cadscene.hpp"
 #include <nvgl/glsltypes_gl.hpp>
 #include <nvh/profiler.hpp>
@@ -56,12 +57,9 @@ inline size_t alignedSize(size_t sz, size_t align)
   return ((sz + align - 1) / align) * align;
 }
 
-static const uint32_t NUM_MATERIAL_SHADERS = 128;
-
 class Resources
 {
 public:
-
   struct Global
   {
     SceneData         sceneUbo;

@@ -32,7 +32,6 @@
 #include "resources.hpp"
 #include <nvh/profiler.hpp>
 
-
 // disable state filtering for buffer binds
 #define USE_NOFILTER          0
 // print per-thread stats

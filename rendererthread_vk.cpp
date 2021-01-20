@@ -210,11 +210,17 @@ private:
     int lastObject   = -1;
     int lastShader   = -1;
 
+#if USE_VULKAN_1_2_BUFFER_ADDRESS
+    VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddress
+#else
     VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT};
+#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddressEXT
+#endif
     addressInfo.buffer                       = scene.m_buffers.matrices;
-    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo);
+    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
     addressInfo.buffer                       = scene.m_buffers.materials;
-    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressEXT(res->m_device, &addressInfo);
+    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
 
     if(bindingMode == BINDINGMODE_DSETS)
     {
