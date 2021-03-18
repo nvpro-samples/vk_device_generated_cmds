@@ -29,19 +29,19 @@
 
 #define DEBUG_FILTER 1
 
-#include <imgui/imgui_helper.h>
+#include <imgui/extras/imgui_helper.h>
 
 #include <nvvk/appwindowprofiler_vk.hpp>
 
-#include <nvh/geometry.hpp>
-#include <nvh/fileoperations.hpp>
 #include <nvh/cameracontrol.hpp>
+#include <nvh/fileoperations.hpp>
+#include <nvh/geometry.hpp>
 
 #include <algorithm>
 
+#include "nv_device_generated_commands.h"
 #include "renderer.hpp"
 #include "threadpool.hpp"
-#include "nv_device_generated_commands.h"
 
 namespace generatedcmds {
 int const SAMPLE_SIZE_WIDTH(1024);
@@ -57,7 +57,7 @@ void setupVulkanContextInfo(nvvk::ContextCreateInfo& info)
 #if USE_VULKAN_1_2_BUFFER_ADDRESS
   info.apiMajor = 1;
   info.apiMinor = 2;
-#else
+#else USE_VULKAN_1_2_BUFFER_ADDRESS
   info.apiMajor = 1;
   info.apiMinor = 1;
 
@@ -733,7 +733,7 @@ using namespace generatedcmds;
 
 int main(int argc, const char** argv)
 {
-  NVPSystem system(argv[0], PROJECT_NAME);
+  NVPSystem system(PROJECT_NAME);
 
 #if defined(_WIN32) && defined(NDEBUG)
   //SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
@@ -744,7 +744,6 @@ int main(int argc, const char** argv)
     std::vector<std::string> directories;
     directories.push_back(NVPSystem::exePath());
     directories.push_back(NVPSystem::exePath() + "/media");
-    directories.push_back(NVPSystem::exePath() + std::string(PROJECT_RELDIRECTORY));
     directories.push_back(NVPSystem::exePath() + std::string(PROJECT_DOWNLOAD_RELDIRECTORY));
     sample.m_modelFilename = nvh::findFile(std::string("geforce.csf.gz"), directories);
   }

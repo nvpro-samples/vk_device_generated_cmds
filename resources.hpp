@@ -62,13 +62,13 @@ class Resources
 public:
   struct Global
   {
-    SceneData         sceneUbo;
-    AnimationData     animUbo;
-    int               winWidth;
-    int               winHeight;
-    int               workingSet;
-    bool              workerBatched;
-    const ImDrawData* imguiDrawData;
+    SceneData     sceneUbo;
+    AnimationData animUbo;
+    int           winWidth;
+    int           winHeight;
+    int           workingSet;
+    bool          workerBatched;
+    ImDrawData*   imguiDrawData;
   };
 
   uint32_t m_numMatrices;
