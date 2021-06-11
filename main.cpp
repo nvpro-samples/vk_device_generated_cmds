@@ -32,7 +32,6 @@
 
 #include <algorithm>
 
-#include "nv_device_generated_commands.h"
 #include "renderer.hpp"
 #include "threadpool.hpp"
 

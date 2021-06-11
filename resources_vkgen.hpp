@@ -23,8 +23,6 @@
 
 #include "resources_vk.hpp"
 
-#include "nv_device_generated_commands.h"
-
 namespace generatedcmds {
 
 class ResourcesVKGen : public ResourcesVK

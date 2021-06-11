@@ -60,8 +60,7 @@ public:
   {
     bool isAvailable(const nvvk::Context& context) const
     {
-      return context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME)
-             && load_VK_NV_device_generated_commands(context.m_instance, vkGetInstanceProcAddr, context.m_device, vkGetDeviceProcAddr);
+      return context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
     }
     const char* name() const { return "generated cmds"; }
     Renderer*   create() const
@@ -80,8 +79,7 @@ public:
   {
     bool isAvailable(const nvvk::Context& context) const
     {
-      return context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME)
-             && load_VK_NV_device_generated_commands(context.m_instance, vkGetInstanceProcAddr, context.m_device, vkGetDeviceProcAddr);
+      return context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
     }
     const char* name() const { return "preprocess,generated cmds"; }
     Renderer*   create() const
