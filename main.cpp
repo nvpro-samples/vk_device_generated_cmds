@@ -49,7 +49,7 @@ void setupVulkanContextInfo(nvvk::ContextCreateInfo& info)
 #if USE_VULKAN_1_2_BUFFER_ADDRESS
   info.apiMajor = 1;
   info.apiMinor = 2;
-#else USE_VULKAN_1_2_BUFFER_ADDRESS
+#else // USE_VULKAN_1_2_BUFFER_ADDRESS
   info.apiMajor = 1;
   info.apiMinor = 1;
 
