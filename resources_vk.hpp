@@ -55,6 +55,11 @@ public:
   }
   static bool isAvailable();
 
+  // must be static because we are changing resource object during ui events
+  // while imgui resources must remain unchanged over app's lifetime
+  static VkRenderPass s_passUI;
+  static void initImGui(const nvvk::Context& context);
+  static void deinitImGui(const nvvk::Context& context);
 
   struct FrameBuffer
   {
@@ -72,7 +77,6 @@ public:
 
     VkRenderPass passClear    = VK_NULL_HANDLE;
     VkRenderPass passPreserve = VK_NULL_HANDLE;
-    VkRenderPass passUI       = VK_NULL_HANDLE;
 
     VkFramebuffer fboScene = VK_NULL_HANDLE;
     VkFramebuffer fboUI    = VK_NULL_HANDLE;
@@ -181,7 +185,6 @@ public:
   //////////////////////////////////////////////////////////////////////////
 
   VkRenderPass createPass(bool clear, int msaa);
-  VkRenderPass createPassUI(int msaa);
 
   VkCommandBuffer createCmdBuffer(VkCommandPool pool, bool singleshot, bool primary, bool secondaryInClear) const;
   VkCommandBuffer createTempCmdBuffer(bool primary = true, bool secondaryInClear = false);

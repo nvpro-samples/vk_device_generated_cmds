@@ -156,9 +156,9 @@ private:
     m_draw.sequencesCount = drawCount;
 
     // compute input buffer space requirements
-    VkPhysicalDeviceProperties2                         phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceProperties2 phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV genProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV};
-    phyProps.pNext                                               = &genProps;
+    phyProps.pNext = &genProps;
     vkGetPhysicalDeviceProperties2(res->m_physical, &phyProps);
 
     size_t alignSeqIndexMask = genProps.minSequencesIndexBufferOffsetAlignment - 1;
@@ -184,17 +184,11 @@ private:
 
     uint8_t* mapping = staging.cmdToBufferT<uint8_t>(cmd, m_draw.inputBuffer, 0, totalSize);
 
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
     VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    #define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddress
-#else
-    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT};
-    #define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddressEXT
-#endif
     addressInfo.buffer                    = sceneVK.m_buffers.matrices;
-    VkDeviceAddress matrixAddress         = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
+    VkDeviceAddress matrixAddress         = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
     addressInfo.buffer                    = sceneVK.m_buffers.materials;
-    VkDeviceAddress materialAddress       = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
+    VkDeviceAddress materialAddress       = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
 
     // fill sequence
     DrawSequence* sequences = (DrawSequence*)mapping;
@@ -208,12 +202,12 @@ private:
       seq.shader.groupIndex = di.shaderIndex;
 
       addressInfo.buffer    = vkgeo.ibo.buffer;
-      seq.ibo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + vkgeo.ibo.offset;
+      seq.ibo.bufferAddress = vkGetBufferDeviceAddress(res->m_device, &addressInfo) + vkgeo.ibo.offset;
       seq.ibo.size          = vkgeo.ibo.range;
       seq.ibo.indexType     = VK_INDEX_TYPE_UINT32;
 
       addressInfo.buffer    = vkgeo.vbo.buffer;
-      seq.vbo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + vkgeo.vbo.offset;
+      seq.vbo.bufferAddress = vkGetBufferDeviceAddress(res->m_device, &addressInfo) + vkgeo.vbo.offset;
       seq.vbo.size          = vkgeo.vbo.range;
       seq.vbo.stride        = sizeof(CadScene::Vertex);
 
@@ -257,9 +251,9 @@ private:
     m_draw.sequencesCount = drawCount;
 
     // compute input buffer space requirements
-    VkPhysicalDeviceProperties2                         phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceProperties2 phyProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV genProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV};
-    phyProps.pNext                                               = &genProps;
+    phyProps.pNext = &genProps;
     vkGetPhysicalDeviceProperties2(res->m_physical, &phyProps);
 
     size_t alignSeqIndexMask = genProps.minSequencesIndexBufferOffsetAlignment - 1;
@@ -305,17 +299,11 @@ private:
     VkDeviceAddress*                     pushMaterials = (VkDeviceAddress*)(mapping + materialOffset);
     VkDrawIndexedIndirectCommand*        draws         = (VkDrawIndexedIndirectCommand*)(mapping + drawOffset);
 
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
     VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddress
-#else
-    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT};
-#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddressEXT
-#endif
-    addressInfo.buffer                       = scene.m_buffers.matrices;
-    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
-    addressInfo.buffer                       = scene.m_buffers.materials;
-    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
+    addressInfo.buffer                    = scene.m_buffers.matrices;
+    VkDeviceAddress matrixAddress         = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
+    addressInfo.buffer                    = scene.m_buffers.materials;
+    VkDeviceAddress materialAddress       = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
 
     // let's record all token inputs for every drawcall
     for(unsigned int i = 0; i < drawCount; i++)
@@ -327,15 +315,15 @@ private:
 
       VkBindIndexBufferIndirectCommandNV& ibo = ibos[i];
       addressInfo.buffer                      = geo.ibo.buffer;
-      ibo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + geo.ibo.offset;
-      ibo.size          = geo.ibo.range;
-      ibo.indexType     = VK_INDEX_TYPE_UINT32;
+      ibo.bufferAddress                       = vkGetBufferDeviceAddress(res->m_device, &addressInfo) + geo.ibo.offset;
+      ibo.size                                = geo.ibo.range;
+      ibo.indexType                           = VK_INDEX_TYPE_UINT32;
 
       VkBindVertexBufferIndirectCommandNV& vbo = vbos[i];
       addressInfo.buffer                       = geo.vbo.buffer;
-      vbo.bufferAddress = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo) + geo.vbo.offset;
-      vbo.size          = geo.vbo.range;
-      vbo.stride        = sizeof(CadScene::Vertex);
+      vbo.bufferAddress                        = vkGetBufferDeviceAddress(res->m_device, &addressInfo) + geo.vbo.offset;
+      vbo.size                                 = geo.vbo.range;
+      vbo.stride                               = sizeof(CadScene::Vertex);
 
       pushMatrices[i]  = matrixAddress + sizeof(CadScene::MatrixNode) * di.matrixIndex;
       pushMaterials[i] = materialAddress + sizeof(CadScene::Material) * di.materialIndex;
@@ -401,11 +389,11 @@ private:
     ResourcesVKGen* res = m_resources;
 
     VkGeneratedCommandsMemoryRequirementsInfoNV memInfo = {VK_STRUCTURE_TYPE_GENERATED_COMMANDS_MEMORY_REQUIREMENTS_INFO_NV};
-    VkPipelineBindPoint                         bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    memInfo.maxSequencesCount                             = m_draw.sequencesCount;
-    memInfo.indirectCommandsLayout                        = m_draw.indirectCmdsLayout;
-    memInfo.pipeline                                      = res->m_drawGroupsPipeline;
-    memInfo.pipelineBindPoint                             = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    VkPipelineBindPoint bindPoint  = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    memInfo.maxSequencesCount      = m_draw.sequencesCount;
+    memInfo.indirectCommandsLayout = m_draw.indirectCmdsLayout;
+    memInfo.pipeline               = res->m_drawGroupsPipeline;
+    memInfo.pipelineBindPoint      = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
     VkMemoryRequirements2 memReqs = {VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};
     vkGetGeneratedCommandsMemoryRequirementsNV(res->m_device, &memInfo, &memReqs);
@@ -709,8 +697,8 @@ void RendererVKGen::draw(const Resources::Global& global, Stats& stats)
         VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
         barrier.srcAccessMask   = VK_ACCESS_COMMAND_PREPROCESS_WRITE_BIT_NV;
         barrier.dstAccessMask   = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-        vkCmdPipelineBarrier(primary, VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1,
-          &barrier, 0, NULL, 0, NULL);
+        vkCmdPipelineBarrier(primary, VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                             0, 1, &barrier, 0, NULL, 0, NULL);
       }
     }
     {

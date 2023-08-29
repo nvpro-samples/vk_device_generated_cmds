@@ -96,12 +96,7 @@ void GeometryMemoryVK::finalize()
 
   Chunk& chunk = getActiveChunk();
 
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
   VkBufferUsageFlags flags = m_needAddress ? VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT : 0;
-#else
-  VkBufferUsageFlags flags = m_needAddress ? VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_EXT : 0;
-#endif
-
   chunk.vbo = m_memoryAllocator->createBuffer(chunk.vboSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | flags, chunk.vboAID);
   chunk.ibo = m_memoryAllocator->createBuffer(chunk.iboSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | flags, chunk.iboAID);
 }
@@ -114,9 +109,7 @@ void CadSceneVK::init(const CadScene& cadscene, VkDevice device, VkPhysicalDevic
   m_config = config;
 
   m_memAllocator.init(m_device, physicalDevice, 256 * MB);
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
   m_memAllocator.setAllocateFlags(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, true);
-#endif
   m_geometry.resize(cadscene.m_geometry.size(), {0});
 
   if(m_geometry.empty())
@@ -170,20 +163,18 @@ void CadSceneVK::init(const CadScene& cadscene, VkDevice device, VkPhysicalDevic
   }
 
   VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-  if (config.needAddress) {
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
+  if(config.needAddress)
+  {
     usageFlags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-#else
-    usageFlags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_EXT;
-#endif
   }
 
   VkDeviceSize materialsSize = cadscene.m_materials.size() * sizeof(CadScene::Material);
   VkDeviceSize matricesSize  = cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode);
 
-  m_buffers.materials    = m_memAllocator.createBuffer(materialsSize, usageFlags, m_buffers.materialsAID);
-  m_buffers.matrices     = m_memAllocator.createBuffer(matricesSize, usageFlags, m_buffers.matricesAID);
-  m_buffers.matricesOrig = m_memAllocator.createBuffer(matricesSize, usageFlags | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, m_buffers.matricesOrigAID);
+  m_buffers.materials = m_memAllocator.createBuffer(materialsSize, usageFlags, m_buffers.materialsAID);
+  m_buffers.matrices  = m_memAllocator.createBuffer(matricesSize, usageFlags, m_buffers.matricesAID);
+  m_buffers.matricesOrig =
+      m_memAllocator.createBuffer(matricesSize, usageFlags | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, m_buffers.matricesOrigAID);
 
   m_infos.materialsSingle = {m_buffers.materials, 0, sizeof(CadScene::Material)};
   m_infos.materials       = {m_buffers.materials, 0, materialsSize};

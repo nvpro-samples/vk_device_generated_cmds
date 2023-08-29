@@ -26,6 +26,7 @@
 
 #include <nvvk/appwindowprofiler_vk.hpp>
 
+
 #include <nvh/cameracontrol.hpp>
 #include <nvh/fileoperations.hpp>
 #include <nvh/geometry.hpp>
@@ -34,6 +35,7 @@
 
 #include "renderer.hpp"
 #include "threadpool.hpp"
+#include "resources_vk.hpp"
 
 namespace generatedcmds {
 int const SAMPLE_SIZE_WIDTH(1024);
@@ -46,16 +48,8 @@ void setupVulkanContextInfo(nvvk::ContextCreateInfo& info)
   info.addDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true, &dgcFeatures,
                           VK_NV_DEVICE_GENERATED_COMMANDS_SPEC_VERSION);
 
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
   info.apiMajor = 1;
   info.apiMinor = 2;
-#else // USE_VULKAN_1_2_BUFFER_ADDRESS
-  info.apiMajor = 1;
-  info.apiMinor = 1;
-
-  static VkPhysicalDeviceBufferDeviceAddressFeaturesEXT bufferFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT};
-  info.addDeviceExtension(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, false, &bufferFeatures);
-#endif
 #if 1
   // not compatible with NV_dgc for now
   info.removeInstanceLayer("VK_LAYER_KHRONOS_validation");
@@ -341,6 +335,7 @@ void Sample::end()
   {
     m_resources->deinit();
   }
+  ResourcesVK::deinitImGui(m_context);
 }
 
 
@@ -364,6 +359,14 @@ bool Sample::begin()
   validated = validated
               && initScene(m_modelFilename.c_str(), m_tweak.copies - 1,
                            (m_tweak.cloneaxisX << 0) | (m_tweak.cloneaxisY << 1) | (m_tweak.cloneaxisZ << 2));
+
+  if (!validated)
+  {
+    LOGE("resources failed\n");
+    return false;
+  }
+
+  ResourcesVK::initImGui(m_context);
 
   const Renderer::Registry registry = Renderer::getRegistry();
   for(size_t i = 0; i < registry.size(); i++)

@@ -86,10 +86,10 @@ private:
     size_t          pipeChangeID;
   };
 
-  std::vector<DrawItem> m_drawItems;
-  std::vector<uint32_t> m_seqIndices;
-  VkCommandPool         m_cmdPool;
-  DrawSetup             m_draw;
+  std::vector<DrawItem>    m_drawItems;
+  std::vector<uint32_t>    m_seqIndices;
+  VkCommandPool            m_cmdPool;
+  DrawSetup                m_draw;
   ResourcesVK* NV_RESTRICT m_resources;
 
   void fillCmdBuffer(VkCommandBuffer cmd, const DrawItem* NV_RESTRICT drawItems, size_t drawCount)
@@ -104,17 +104,11 @@ private:
     int lastObject   = -1;
     int lastShader   = -1;
 
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
     VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddress
-#else
-    VkBufferDeviceAddressInfoEXT addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT};
-#define vkGetBufferDeviceAddressUSED    vkGetBufferDeviceAddressEXT
-#endif
-    addressInfo.buffer                       = scene.m_buffers.matrices;
-    VkDeviceAddress matrixAddress            = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
-    addressInfo.buffer                       = scene.m_buffers.materials;
-    VkDeviceAddress materialAddress          = vkGetBufferDeviceAddressUSED(res->m_device, &addressInfo);
+    addressInfo.buffer                    = scene.m_buffers.matrices;
+    VkDeviceAddress matrixAddress         = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
+    addressInfo.buffer                    = scene.m_buffers.materials;
+    VkDeviceAddress materialAddress       = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
 
     if(bindingMode == BINDINGMODE_DSETS)
     {

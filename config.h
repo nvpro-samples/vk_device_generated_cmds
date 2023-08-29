@@ -20,8 +20,6 @@
 
 #pragma once
 
-// use vulkan 1.2 otherwise 1.1 with EXT_buffer_device_address
-#define USE_VULKAN_1_2_BUFFER_ADDRESS   1
 // use pipeline referencing N pipelines for DGC, otherwise single pipeline with N shadergroups
 #define USE_PIPELINE_REFERENCES         1
 // artificially create a few more shader permutations
