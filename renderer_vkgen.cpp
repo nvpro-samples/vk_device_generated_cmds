@@ -26,7 +26,6 @@
 #include "resources_vkgen.hpp"
 
 #include <nvh/nvprint.hpp>
-#include <nvmath/nvmath_glsltypes.h>
 
 #include "common.h"
 

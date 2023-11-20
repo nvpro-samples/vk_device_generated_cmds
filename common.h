@@ -57,7 +57,7 @@
 
 #ifdef __cplusplus
 namespace generatedcmds {
-  using namespace nvmath;
+  using namespace glm;
 #endif
 
 struct SceneData {

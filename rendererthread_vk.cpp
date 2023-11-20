@@ -27,7 +27,6 @@
 #include "resources_vk.hpp"
 #include "threadpool.hpp"
 #include <nvh/nvprint.hpp>
-#include <nvmath/nvmath_glsltypes.h>
 #include <nvpwindow.hpp>
 
 #include "common.h"

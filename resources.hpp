@@ -32,7 +32,7 @@
 
 struct ImDrawData;
 
-using namespace nvmath;
+using namespace glm;
 #include "common.h"
 
 

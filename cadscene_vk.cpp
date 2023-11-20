@@ -109,9 +109,7 @@ void CadSceneVK::init(const CadScene& cadscene, VkDevice device, VkPhysicalDevic
   m_config = config;
 
   m_memAllocator.init(m_device, physicalDevice, 256 * MB);
-#if USE_VULKAN_1_2_BUFFER_ADDRESS
   m_memAllocator.setAllocateFlags(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, true);
-#endif
   m_geometry.resize(cadscene.m_geometry.size(), {0});
 
   if(m_geometry.empty())
