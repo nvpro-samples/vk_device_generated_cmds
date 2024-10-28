@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,9 +21,6 @@
 #pragma once
 
 #define DRAW_UBOS_NUM 3
-
-// only use one big buffer for all geometries, otherwise individual
-#define USE_SINGLE_GEOMETRY_BUFFERS 1
 
 #include "cadscene_vk.hpp"
 #include "resources.hpp"
@@ -33,12 +30,14 @@
 #include <nvvk/context_vk.hpp>
 #include <nvvk/descriptorsets_vk.hpp>
 #include <nvvk/error_vk.hpp>
-#include <nvvk/memorymanagement_vk.hpp>
+#include <nvvk/resourceallocator_vk.hpp>
 #include <nvvk/pipeline_vk.hpp>
 #include <nvvk/profiler_vk.hpp>
 #include <nvvk/renderpasses_vk.hpp>
 #include <nvvk/shadermodulemanager_vk.hpp>
 #include <nvvk/swapchain_vk.hpp>
+#include <nvvk/memorymanagement_vk.hpp>
+#include <nvvk/resourceallocator_vk.hpp>
 
 namespace generatedcmds {
 
@@ -55,9 +54,6 @@ public:
   }
   static bool isAvailable();
 
-  // must be static because we are changing resource object during ui events
-  // while imgui resources must remain unchanged over app's lifetime
-  static VkRenderPass s_passUI;
   static void initImGui(const nvvk::Context& context);
   static void deinitImGui(const nvvk::Context& context);
 
@@ -70,82 +66,100 @@ public:
     bool vsync        = false;
     int  msaa         = 0;
 
+    VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    VkFormat depthStencilFormat;
+
     VkViewport viewport;
     VkViewport viewportUI;
     VkRect2D   scissor;
     VkRect2D   scissorUI;
 
-    VkRenderPass passClear    = VK_NULL_HANDLE;
-    VkRenderPass passPreserve = VK_NULL_HANDLE;
-
-    VkFramebuffer fboScene = VK_NULL_HANDLE;
-    VkFramebuffer fboUI    = VK_NULL_HANDLE;
-
-    VkImage imgColor         = VK_NULL_HANDLE;
-    VkImage imgColorResolved = VK_NULL_HANDLE;
-    VkImage imgDepthStencil  = VK_NULL_HANDLE;
+    nvvk::Image imgColor         = {};
+    nvvk::Image imgColorResolved = {};
+    nvvk::Image imgDepthStencil  = {};
 
     VkImageView viewColor         = VK_NULL_HANDLE;
     VkImageView viewColorResolved = VK_NULL_HANDLE;
     VkImageView viewDepthStencil  = VK_NULL_HANDLE;
 
-    nvvk::DeviceMemoryAllocator memAllocator;
+    VkRenderingAttachmentInfo attachColor;
+    VkRenderingAttachmentInfo attachColorUI;
+    VkRenderingAttachmentInfo attachDepth;
+
+    VkRenderingInfo               renderingInfo           = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+    VkRenderingInfo               renderingInfoUI         = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+    VkPipelineRenderingCreateInfo pipelineRenderingInfo   = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    VkPipelineRenderingCreateInfo pipelineRenderingInfoUI = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
   };
 
   struct Common
   {
-    nvvk::AllocationID     viewAID;
-    VkBuffer               viewBuffer;
+    nvvk::Buffer           viewBuffer;
     VkDescriptorBufferInfo viewInfo;
 
-    nvvk::AllocationID     animAID;
-    VkBuffer               animBuffer;
+    nvvk::Buffer           animBuffer;
     VkDescriptorBufferInfo animInfo;
   };
 
   struct
   {
-    nvvk::ShaderModuleID shaderModuleID;
-    VkShaderModule       shader;
-    VkPipeline           pipeline;
+    nvvk::ShaderModuleID shaderModuleID = {};
+    VkShaderModule       shader         = nullptr;
+    VkPipeline           pipeline       = nullptr;
   } m_animShading;
 
   struct
   {
-    nvvk::ShaderModuleID vertexIDs[NUM_MATERIAL_SHADERS];
-    nvvk::ShaderModuleID fragmentIDs[NUM_MATERIAL_SHADERS];
-    VkShaderModule       vertexShaders[NUM_MATERIAL_SHADERS];
-    VkShaderModule       fragmentShaders[NUM_MATERIAL_SHADERS];
-    VkPipeline           pipelines[NUM_MATERIAL_SHADERS];
-  } m_drawShading[NUM_BINDINGMODES];
+    VkPipeline  pipelines[NUM_MATERIAL_SHADERS]          = {};
+    VkShaderEXT vertexShaderObjs[NUM_MATERIAL_SHADERS]   = {};
+    VkShaderEXT fragmentShaderObjs[NUM_MATERIAL_SHADERS] = {};
+  } m_drawShading;
+
+  struct
+  {
+    nvvk::ShaderModuleID vertexIDs[NUM_MATERIAL_SHADERS]       = {};
+    nvvk::ShaderModuleID fragmentIDs[NUM_MATERIAL_SHADERS]     = {};
+    VkShaderModule       vertexShaders[NUM_MATERIAL_SHADERS]   = {};
+    VkShaderModule       fragmentShaders[NUM_MATERIAL_SHADERS] = {};
+  } m_drawShaderModules[NUM_BINDINGMODES];
 
 
   bool                      m_withinFrame = false;
   nvvk::ShaderModuleManager m_shaderManager;
 
-  FrameBuffer m_framebuffer;
+
+  FrameBuffer m_framebuffer = {};
   Common      m_common;
 
-  nvvk::SwapChain* m_swapChain;
-  nvvk::Context*   m_context;
+  nvvk::SwapChain* m_swapChain = nullptr;
+  nvvk::Context*   m_context   = nullptr;
   nvvk::ProfilerVK m_profilerVK;
 
   VkDevice                    m_device = VK_NULL_HANDLE;
   VkPhysicalDevice            m_physical;
   VkQueue                     m_queue;
   uint32_t                    m_queueFamily;
-  nvvk::DeviceMemoryAllocator m_memAllocator;
+  nvvk::DeviceMemoryAllocator m_memoryAllocator;
+  nvvk::ResourceAllocator     m_resourceAllocator;
   nvvk::RingFences            m_ringFences;
   nvvk::RingCommandPool       m_ringCmdPool;
   nvvk::BatchSubmission       m_submission;
   bool                        m_submissionWaitForRead;
 
-  VkPipelineCreateFlags                        m_gfxStatePipelineFlags = 0;  // hack for derived overrides
-  nvvk::GraphicsPipelineState                  m_gfxState;
-  nvvk::GraphicsPipelineGenerator              m_gfxGen{m_gfxState};
+  VkPipelineCreateFlags2CreateInfoKHR m_gfxStateFlags2CreateInfo;
+  nvvk::GraphicsPipelineState         m_gfxState;
+  nvvk::GraphicsPipelineGenerator     m_gfxGen{m_gfxState};
+  nvvk::GraphicShaderObjectPipeline   m_gfxStateShaderObjects;
+
   nvvk::TDescriptorSetContainer<DRAW_UBOS_NUM> m_drawBind;
   nvvk::DescriptorSetContainer                 m_drawPush;
+  nvvk::DescriptorSetContainer                 m_drawIndexed;
   nvvk::DescriptorSetContainer                 m_anim;
+  VkPushConstantRange                          m_pushRanges[2];
+
+  BindingMode               m_lastBindingMode   = NUM_BINDINGMODES;
+  VkPipelineCreateFlags2KHR m_lastPipeFlags     = ~0;
+  bool                      m_lastUseShaderObjs = false;
 
   uint32_t   m_numMatrices;
   CadSceneVK m_scene;
@@ -157,9 +171,9 @@ public:
   bool init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::Profiler* profiler) override;
   void deinit() override;
 
-  virtual void initPipes();
-  void         deinitPipes();
-  bool         hasPipes() { return m_animShading.pipeline != 0; }
+  void initPipelinesOrShaders(BindingMode bindingMode, VkPipelineCreateFlags2KHR pipeFlags, bool useShaderObjs, bool force = false);
+  void deinitPipelinesOrShaders();
+  bool hasPipes() { return m_animShading.pipeline != 0; }
 
   bool initPrograms(const std::string& path, const std::string& prepend) override;
   void reloadPrograms(const std::string& prepend) override;
@@ -184,8 +198,6 @@ public:
 
   //////////////////////////////////////////////////////////////////////////
 
-  VkRenderPass createPass(bool clear, int msaa);
-
   VkCommandBuffer createCmdBuffer(VkCommandPool pool, bool singleshot, bool primary, bool secondaryInClear) const;
   VkCommandBuffer createTempCmdBuffer(bool primary = true, bool secondaryInClear = false);
 
@@ -194,14 +206,14 @@ public:
   void submissionEnqueue(VkCommandBuffer cmdbuffer) { m_submission.enqueue(cmdbuffer); }
   void submissionEnqueue(uint32_t num, const VkCommandBuffer* cmdbuffers) { m_submission.enqueue(num, cmdbuffers); }
   // perform queue submit
-  void submissionExecute(VkFence fence = NULL, bool useImageReadWait = false, bool useImageWriteSignals = false);
+  void submissionExecute(VkFence fence = nullptr, bool useImageReadWait = false, bool useImageWriteSignals = false);
 
   // synchronizes to queue
   void resetTempResources();
 
-  void cmdBeginRenderPass(VkCommandBuffer cmd, bool clear, bool hasSecondary = false) const;
-  void cmdPipelineBarrier(VkCommandBuffer cmd) const;
-  void cmdDynamicState(VkCommandBuffer cmd) const;
+
+  void cmdShaderObjectState(VkCommandBuffer cmd) const;
+  void cmdDynamicPipelineState(VkCommandBuffer cmd) const;
   void cmdImageTransition(VkCommandBuffer    cmd,
                           VkImage            img,
                           VkImageAspectFlags aspects,
@@ -209,7 +221,11 @@ public:
                           VkAccessFlags      dst,
                           VkImageLayout      oldLayout,
                           VkImageLayout      newLayout) const;
+
   void cmdBegin(VkCommandBuffer cmd, bool singleshot, bool primary, bool secondaryInClear) const;
+  void cmdBeginRendering(VkCommandBuffer cmd, bool hasSecondary = false) const;
+
+  void cmdPipelineBarrier(VkCommandBuffer cmd) const;
 };
 
 }  // namespace generatedcmds

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -31,6 +31,12 @@
 
 #include "common.h"
 
+#if 0
+#include <emmintrin.h>
+#define THREAD_BARRIER() _mm_mfence()
+#else
+#define THREAD_BARRIER() std::atomic_thread_fence(std::memory_order_seq_cst)
+#endif
 
 namespace generatedcmds {
 
@@ -40,41 +46,24 @@ namespace generatedcmds {
 class RendererThreadedVK : public Renderer
 {
 public:
-  enum Mode
-  {
-    MODE_CMD_MAINSUBMIT,
-  };
-
-
   class TypeCmd : public Renderer::Type
   {
-    bool        isAvailable(const nvvk::Context& context) const { return true; }
-    const char* name() const { return "threaded cmds"; }
-    Renderer*   create() const
+    bool        isAvailable(const nvvk::Context& context) override { return true; }
+    const char* name() const override { return "threaded cmds"; }
+    Renderer*   create() const override
     {
       RendererThreadedVK* renderer = new RendererThreadedVK();
-      renderer->m_mode             = MODE_CMD_MAINSUBMIT;
       return renderer;
     }
-    unsigned int priority() const { return 10; }
-
-    Resources* resources() { return ResourcesVK::get(); }
+    uint32_t priority() const override { return 10; }
   };
 
 public:
-  void init(const CadScene* NV_RESTRICT scene, Resources* res, const Config& config, Stats& stats) override;
+  void init(const CadScene* scene, ResourcesVK* res, const Config& config, Stats& stats) override;
   void deinit() override;
   void draw(const Resources::Global& global, Stats& stats) override;
 
-  uint32_t supportedBindingModes() override { return (1 << BINDINGMODE_DSETS) | (1 << BINDINGMODE_PUSHADDRESS); };
-
-
-  Mode m_mode;
-
-  RendererThreadedVK()
-      : m_mode(MODE_CMD_MAINSUBMIT)
-  {
-  }
+  RendererThreadedVK() {}
 
 private:
   struct DrawSetup
@@ -121,10 +110,14 @@ private:
   };
 
 
-  std::vector<DrawItem>    m_drawItems;
-  std::vector<uint32_t>    m_seqIndices;
-  ResourcesVK* NV_RESTRICT m_resources;
-  int                      m_numThreads;
+  std::vector<DrawItem>  m_drawItems;
+  std::vector<uint32_t>  m_seqIndices;
+  ResourcesVK*           m_resources;
+  int                    m_numThreads;
+  CadScene::IndexingBits m_indexingBits;
+  std::vector<uint32_t>  m_combinedIndicesData;
+  nvvk::Buffer           m_combinedIndices[nvvk::DEFAULT_RING_SIZE];
+  void*                  m_combinedIndicesMappings[nvvk::DEFAULT_RING_SIZE];
 
   ThreadPool m_threadpool;
 
@@ -187,11 +180,10 @@ private:
   unsigned int RunThreadFrame(ThreadJob& job);
 
   void enqueueShadeCommand_ts(DrawSetup* sc);
-  void submitShadeCommand_ts(DrawSetup* sc);
 
   void drawThreaded(const Resources::Global& global, VkCommandBuffer cmd, Stats& stats);
 
-  void fillCmdBuffer(VkCommandBuffer cmd, BindingMode bindingMode, const DrawItem* NV_RESTRICT drawItems, size_t drawCount)
+  void fillCmdBuffer(VkCommandBuffer cmd, BindingMode bindingMode, size_t begin, const DrawItem* drawItems, size_t drawCount)
   {
     const ResourcesVK* res   = m_resources;
     const CadSceneVK&  scene = res->m_scene;
@@ -202,42 +194,103 @@ private:
     int lastObject   = -1;
     int lastShader   = -1;
 
-    VkBufferDeviceAddressInfo addressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    addressInfo.buffer                    = scene.m_buffers.matrices;
-    VkDeviceAddress matrixAddress         = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
-    addressInfo.buffer                    = scene.m_buffers.materials;
-    VkDeviceAddress materialAddress       = vkGetBufferDeviceAddress(res->m_device, &addressInfo);
+    VkDeviceAddress matrixAddress   = scene.m_buffers.matrices.address;
+    VkDeviceAddress materialAddress = scene.m_buffers.materials.address;
 
-    if(bindingMode == BINDINGMODE_DSETS)
+    switch(bindingMode)
     {
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawBind.getPipeLayout(), DRAW_UBO_SCENE, 1,
-                              res->m_drawBind.at(DRAW_UBO_SCENE).getSets(), 0, NULL);
+      case BINDINGMODE_DSETS:
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawBind.getPipeLayout(), DRAW_UBO_SCENE,
+                                1, res->m_drawBind.at(DRAW_UBO_SCENE).getSets(), 0, nullptr);
+        break;
+      case BINDINGMODE_PUSHADDRESS:
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawPush.getPipeLayout(), 0, 1,
+                                res->m_drawPush.getSets(), 0, nullptr);
+        break;
+      case BINDINGMODE_INDEX_BASEINSTANCE:
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawIndexed.getPipeLayout(), 0, 1,
+                                res->m_drawIndexed.getSets(), 0, nullptr);
+        break;
+      case BINDINGMODE_INDEX_VERTEXATTRIB:
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawIndexed.getPipeLayout(), 0, 1,
+                                res->m_drawIndexed.getSets(), 0, nullptr);
+
+        {
+          VkDeviceSize offset = {sizeof(uint32_t) * begin};
+          VkDeviceSize size   = {VK_WHOLE_SIZE};
+          VkDeviceSize stride = {sizeof(uint32_t)};
+#if USE_DYNAMIC_VERTEX_STRIDE
+          vkCmdBindVertexBuffers2(cmd, 1, 1, &m_combinedIndices[m_cycleCurrent].buffer, &offset, &size, &stride);
+#else
+          vkCmdBindVertexBuffers(cmd, 1, 1, &m_combinedIndices[m_cycleCurrent].buffer, &offset);
+#endif
+        }
+        break;
     }
-    else if(bindingMode == BINDINGMODE_PUSHADDRESS)
+
+    if(m_config.shaderObjs)
     {
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawPush.getPipeLayout(), DRAW_UBO_SCENE, 1,
-                              res->m_drawPush.getSets(), 0, NULL);
+      const VkShaderStageFlagBits unusedStages[3] = {VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+                                                     VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, VK_SHADER_STAGE_GEOMETRY_BIT};
+      vkCmdBindShadersEXT(cmd, 3, unusedStages, nullptr);
     }
 
     for(size_t i = 0; i < drawCount; i++)
     {
-      uint32_t        idx = m_config.permutated ? m_seqIndices[i] : uint32_t(i);
+      size_t          idx = m_config.permutated ? m_seqIndices[i + begin] : i + begin;
       const DrawItem& di  = drawItems[idx];
 
       if(di.shaderIndex != lastShader)
       {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawShading[bindingMode].pipelines[di.shaderIndex]);
+        if(m_config.shaderObjs)
+        {
+          VkShaderStageFlagBits stages[2]  = {VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT};
+          VkShaderEXT           shaders[2] = {res->m_drawShading.vertexShaderObjs[di.shaderIndex],
+                                              res->m_drawShading.fragmentShaderObjs[di.shaderIndex]};
+          vkCmdBindShadersEXT(cmd, 2, stages, shaders);
+        }
+        else
+        {
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawShading.pipelines[di.shaderIndex]);
+        }
+
+        lastShader = di.shaderIndex;
       }
 
-      if(lastGeometry != di.geometryIndex)
+#if USE_DRAW_OFFSETS
+      if(lastGeometry != int(scene.m_geometry[di.geometryIndex].allocation.chunkIndex))
       {
         const CadSceneVK::Geometry& geo = scene.m_geometry[di.geometryIndex];
 
-        vkCmdBindVertexBuffers(cmd, 0, 1, &geo.vbo.buffer, &geo.vbo.offset);
+        vkCmdBindIndexBuffer(cmd, geo.ibo.buffer, 0, VK_INDEX_TYPE_UINT32);
+        VkDeviceSize offset = {0};
+        VkDeviceSize size   = {VK_WHOLE_SIZE};
+        VkDeviceSize stride = {sizeof(CadScene::Vertex)};
+#if USE_DYNAMIC_VERTEX_STRIDE
+        vkCmdBindVertexBuffers2(cmd, 0, 1, &geo.vbo.buffer, &offset, &size, &stride);
+#else
+        vkCmdBindVertexBuffers(cmd, 0, 1, &geo.vbo.buffer, &offset);
+#endif
+        lastGeometry = int(scene.m_geometry[di.geometryIndex].allocation.chunkIndex);
+      }
+#else
+      if(lastGeometry != di.geometryIndex)
+      {
+        const CadSceneVK::Geometry& geo    = scene.m_geometry[di.geometryIndex];
+        VkDeviceSize                stride = {sizeof(CadScene::Vertex)};
+
         vkCmdBindIndexBuffer(cmd, geo.ibo.buffer, geo.ibo.offset, VK_INDEX_TYPE_UINT32);
+#if USE_DYNAMIC_VERTEX_STRIDE
+        vkCmdBindVertexBuffers2(cmd, 0, 1, &geo.vbo.buffer, &geo.vbo.offset, &geo.vbo.range, &stride);
+#else
+        vkCmdBindVertexBuffers(cmd, 0, 1, &geo.vbo.buffer, &geo.vbo.offset);
+#endif
 
         lastGeometry = di.geometryIndex;
       }
+#endif
+
+      uint32_t firstInstance = 0;
 
       if(bindingMode == BINDINGMODE_DSETS)
       {
@@ -278,23 +331,53 @@ private:
           lastMaterial = di.materialIndex;
         }
       }
+      else if(bindingMode == BINDINGMODE_INDEX_BASEINSTANCE)
+      {
+        firstInstance = m_indexingBits.packIndices(di.matrixIndex, di.materialIndex);
+      }
+      else if(bindingMode == BINDINGMODE_INDEX_VERTEXATTRIB)
+      {
+        firstInstance                    = i;
+        m_combinedIndicesData[begin + i] = m_indexingBits.packIndices(di.matrixIndex, di.materialIndex);
+      }
+
       // drawcall
-      vkCmdDrawIndexed(cmd, di.range.count, 1, uint32_t(di.range.offset / sizeof(uint32_t)), 0, 0);
+#if USE_DRAW_OFFSETS
+      const CadSceneVK::Geometry& geo = scene.m_geometry[di.geometryIndex];
+      vkCmdDrawIndexed(cmd, di.range.count, 1, uint32_t(di.range.offset + geo.ibo.offset / sizeof(uint32_t)),
+                       geo.vbo.offset / sizeof(CadScene::Vertex), firstInstance);
+#else
+      vkCmdDrawIndexed(cmd, di.range.count, 1, uint32_t(di.range.offset / sizeof(uint32_t)), 0, firstInstance);
+#endif
 
       lastShader = di.shaderIndex;
     }
+
+    if(m_combinedIndicesData.size())
+    {
+      // copy
+      uint32_t* mapping = (uint32_t*)m_combinedIndicesMappings[m_cycleCurrent];
+      memcpy(mapping + begin, m_combinedIndicesData.data() + begin, sizeof(uint32_t) * drawCount);
+    }
   }
 
-  void setupCmdBuffer(DrawSetup& sc, nvvk::RingCommandPool& pool, const DrawItem* NV_RESTRICT drawItems, size_t drawCount)
+  void setupCmdBuffer(DrawSetup& sc, nvvk::RingCommandPool& pool, size_t begin, const DrawItem* drawItems, size_t drawCount)
   {
-    const ResourcesVK* NV_RESTRICT res = m_resources;
+    const ResourcesVK* res = m_resources;
 
-    VkCommandBuffer cmd = pool.createCommandBuffer(
-        m_mode == MODE_CMD_MAINSUBMIT ? VK_COMMAND_BUFFER_LEVEL_SECONDARY : VK_COMMAND_BUFFER_LEVEL_PRIMARY, false);
+    VkCommandBuffer cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY, false);
     res->cmdBegin(cmd, true, false, true);
 
-    res->cmdDynamicState(cmd);
-    fillCmdBuffer(cmd, m_config.bindingMode, drawItems, drawCount);
+    if(m_config.shaderObjs)
+    {
+      res->cmdShaderObjectState(cmd);
+    }
+    else
+    {
+      res->cmdDynamicPipelineState(cmd);
+    }
+
+    fillCmdBuffer(cmd, m_config.bindingMode, begin, drawItems, drawCount);
 
     vkEndCommandBuffer(cmd);
     sc.cmdbuffers.push_back(cmd);
@@ -304,12 +387,14 @@ private:
 
 static RendererThreadedVK::TypeCmd s_type_cmdmain_vk;
 
-void RendererThreadedVK::init(const CadScene* NV_RESTRICT scene, Resources* resources, const Config& config, Stats& stats)
+void RendererThreadedVK::init(const CadScene* scene, ResourcesVK* resources, const Config& config, Stats& stats)
 {
-  ResourcesVK* NV_RESTRICT res = (ResourcesVK*)resources;
-  m_resources                  = res;
-  m_scene                      = scene;
-  m_config                     = config;
+  ResourcesVK* res = (ResourcesVK*)resources;
+  m_resources      = res;
+  m_scene          = scene;
+  m_config         = config;
+
+  res->initPipelinesOrShaders(config.bindingMode, 0, config.shaderObjs);
 
   fillDrawItems(m_drawItems, scene, config, stats);
   if(config.permutated)
@@ -317,6 +402,21 @@ void RendererThreadedVK::init(const CadScene* NV_RESTRICT scene, Resources* reso
     m_seqIndices.resize(m_drawItems.size());
     fillRandomPermutation(m_drawItems.size(), m_seqIndices.data(), m_drawItems.data(), stats);
   }
+
+  if(m_config.bindingMode == BINDINGMODE_INDEX_VERTEXATTRIB)
+  {
+    m_combinedIndicesData.resize(m_drawItems.size());
+    for(uint32_t i = 0; i < nvvk::DEFAULT_RING_SIZE; i++)
+    {
+      m_combinedIndices[i] =
+          res->m_resourceAllocator.createBuffer(sizeof(uint32_t) * m_drawItems.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+      m_combinedIndicesMappings[i] = res->m_resourceAllocator.map(m_combinedIndices[i]);
+    }
+  }
+
+  m_indexingBits = m_scene->getIndexingBits();
 
   m_threadpool.init(m_config.workerThreads);
 
@@ -346,7 +446,7 @@ void RendererThreadedVK::deinit()
   m_stopThreads = 1;
   m_ready       = 0;
 
-  NV_BARRIER();
+  THREAD_BARRIER();
   for(uint32_t i = 0; i < m_config.workerThreads; i++)
   {
     std::unique_lock<std::mutex> lock(m_jobs[i].m_hasWorkMutex);
@@ -365,7 +465,7 @@ void RendererThreadedVK::deinit()
     }
   }
 
-  NV_BARRIER();
+  THREAD_BARRIER();
 
   for(uint32_t i = 0; i < m_config.workerThreads; i++)
   {
@@ -376,11 +476,21 @@ void RendererThreadedVK::deinit()
     m_jobs[i].m_pool.deinit();
   }
 
+  for(uint32_t i = 0; i < nvvk::DEFAULT_RING_SIZE; i++)
+  {
+    if(m_combinedIndices[i].memHandle)
+    {
+      m_resources->m_resourceAllocator.unmap(m_combinedIndices[i]);
+      m_resources->m_resourceAllocator.destroy(m_combinedIndices[i]);
+    }
+  }
+
   delete[] m_jobs;
 
   m_threadpool.deinit();
 
   m_drawItems.clear();
+  m_combinedIndicesData.clear();
 }
 
 void RendererThreadedVK::enqueueShadeCommand_ts(DrawSetup* sc)
@@ -389,22 +499,6 @@ void RendererThreadedVK::enqueueShadeCommand_ts(DrawSetup* sc)
 
   m_drawQueue.push(sc);
   m_drawMutexCondition.notify_one();
-}
-
-
-void RendererThreadedVK::submitShadeCommand_ts(DrawSetup* sc)
-{
-  {
-    std::unique_lock<std::mutex> lock(m_drawMutex);
-    NV_BARRIER();
-    VkSubmitInfo submitInfo       = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submitInfo.commandBufferCount = (uint32_t)sc->cmdbuffers.size();
-    submitInfo.pCommandBuffers    = sc->cmdbuffers.data();
-    vkQueueSubmit(m_resources->m_queue, 1, &submitInfo, VK_NULL_HANDLE);
-    NV_BARRIER();
-  }
-
-  sc->cmdbuffers.clear();
 }
 
 unsigned int RendererThreadedVK::RunThreadFrame(ThreadJob& job)
@@ -421,12 +515,12 @@ unsigned int RendererThreadedVK::RunThreadFrame(ThreadJob& job)
   job.resetFrame();
   job.m_pool.setCycle(m_cycleCurrent);
 
-  if(m_workerBatched)
+  if(m_workerBatched || true)
   {
     DrawSetup* sc = job.getFrameCommand();
     while(getWork_ts(begin, num))
     {
-      setupCmdBuffer(*sc, job.m_pool, &m_drawItems[begin], num);
+      setupCmdBuffer(*sc, job.m_pool, begin, m_drawItems.data(), num);
       tnum += num;
     }
     if(!sc->cmdbuffers.empty())
@@ -440,7 +534,7 @@ unsigned int RendererThreadedVK::RunThreadFrame(ThreadJob& job)
     while(getWork_ts(begin, num))
     {
       DrawSetup* sc = job.getFrameCommand();
-      setupCmdBuffer(*sc, job.m_pool, &m_drawItems[begin], num);
+      setupCmdBuffer(*sc, job.m_pool, begin, m_drawItems.data(), num);
 
       if(!sc->cmdbuffers.empty())
       {
@@ -451,8 +545,8 @@ unsigned int RendererThreadedVK::RunThreadFrame(ThreadJob& job)
     }
   }
 
-  // NULL signals we are done
-  enqueueShadeCommand_ts(NULL);
+  // nullptr signals we are done
+  enqueueShadeCommand_ts(nullptr);
 
   return dispatches;
 }
@@ -470,8 +564,6 @@ void RendererThreadedVK::RunThread(int tid)
 
   while(!m_stopThreads)
   {
-    //NV_BARRIER();
-
     double beginFrame = NVPSystem::getTime();
     timeFrame -= NVPSystem::getTime();
     {
@@ -514,7 +606,7 @@ void RendererThreadedVK::RunThread(int tid)
       float avgdispatch = float(double(dispatches) / double(timerFrames));
 
 #if 1
-      LOGI("thread %d: work %6d [us] dispatches %5.1f\n", tid, uint32_t(timeWork), avgdispatch);
+      LOGI("thread %d: work %6d [us] cmdbuffers %5.1f (avg)\n", tid, uint32_t(timeWork), avgdispatch);
 #endif
       timeFrame = 0;
       timeWork  = 0;
@@ -546,7 +638,7 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
 
   // generate & cmdbuffers in parallel
 
-  NV_BARRIER();
+  THREAD_BARRIER();
 
   // start to dispatch threads
   for(uint32_t i = 0; i < m_config.workerThreads; i++)
@@ -564,7 +656,7 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
     while(true)
     {
       bool       hadEntry = false;
-      DrawSetup* sc       = NULL;
+      DrawSetup* sc       = nullptr;
       {
         std::unique_lock<std::mutex> lock(m_drawMutex);
         if(m_drawQueue.empty())
@@ -586,7 +678,7 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
         if(sc)
         {
           m_numEnqueues++;
-          NV_BARRIER();
+          THREAD_BARRIER();
           vkCmdExecuteCommands(primary, (uint32_t)sc->cmdbuffers.size(), sc->cmdbuffers.data());
           stats.cmdBuffers += (uint32_t)sc->cmdbuffers.size();
           sc->cmdbuffers.clear();
@@ -607,7 +699,7 @@ void RendererThreadedVK::drawThreaded(const Resources::Global& global, VkCommand
 
   m_frame++;
 
-  NV_BARRIER();
+  THREAD_BARRIER();
 }
 
 void RendererThreadedVK::draw(const Resources::Global& global, Stats& stats)
@@ -620,13 +712,14 @@ void RendererThreadedVK::draw(const Resources::Global& global, Stats& stats)
     {
       nvvk::ProfilerVK::Section profile(res->m_profilerVK, "Draw", primary);
 
-      vkCmdUpdateBuffer(primary, res->m_common.viewBuffer, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
+      vkCmdUpdateBuffer(primary, res->m_common.viewBuffer.buffer, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
       res->cmdPipelineBarrier(primary);
-      res->cmdBeginRenderPass(primary, true, true);
+      res->cmdBeginRendering(primary, true);
 
       drawThreaded(global, primary, stats);
 
-      vkCmdEndRenderPass(primary);
+
+      vkCmdEndRendering(primary);
     }
   }
   vkEndCommandBuffer(primary);

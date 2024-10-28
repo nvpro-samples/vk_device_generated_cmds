@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,10 +22,10 @@
 
 #define DEBUG_FILTER 1
 
+#include "vk_ext_device_generated_commands.hpp"
 #include <imgui/imgui_helper.h>
 
 #include <nvvk/appwindowprofiler_vk.hpp>
-
 
 #include <nvh/cameracontrol.hpp>
 #include <nvh/fileoperations.hpp>
@@ -40,20 +40,51 @@
 
 namespace generatedcmds {
 int const SAMPLE_SIZE_WIDTH(1024);
-int const SAMPLE_SIZE_HEIGHT(768);
+int const SAMPLE_SIZE_HEIGHT(960);
 
 void setupVulkanContextInfo(nvvk::ContextCreateInfo& info)
 {
-  static VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV dgcFeatures = {
+  info.apiMajor = 1;
+  info.apiMinor = 3;
+
+  static VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjsFeatureExt = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT};
+  info.addDeviceExtension(VK_EXT_SHADER_OBJECT_EXTENSION_NAME, true, &shaderObjsFeatureExt, VK_EXT_SHADER_OBJECT_SPEC_VERSION);
+
+#if 1
+  static VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV dgcFeaturesNv = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_FEATURES_NV};
-  info.addDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true, &dgcFeatures,
+  info.addDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true, &dgcFeaturesNv,
                           VK_NV_DEVICE_GENERATED_COMMANDS_SPEC_VERSION);
 
-  info.apiMajor = 1;
-  info.apiMinor = 2;
+  static VkPhysicalDeviceDeviceGeneratedCommandsFeaturesEXT dgcFeaturesExt = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_FEATURES_EXT};
+  info.addDeviceExtension(VK_EXT_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true, &dgcFeaturesExt,
+                          VK_EXT_DEVICE_GENERATED_COMMANDS_SPEC_VERSION);
+
+#if _DEBUG
+  // extensions don't work with validation layer
 #if 1
-  // not compatible with NV_dgc for now
   info.removeInstanceLayer("VK_LAYER_KHRONOS_validation");
+#else
+
+  // Removing the handle wrapping to the KHRONOS validation layer
+  // See: https://vulkan.lunarg.com/doc/sdk/1.3.275.0/linux/khronos_validation_layer.html
+  static const char*    layer_name      = "VK_LAYER_KHRONOS_validation";
+  static const VkBool32 handle_wrapping = VK_FALSE;
+
+  static const VkLayerSettingEXT settings[] = {
+      {layer_name, "handle_wrapping", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &handle_wrapping},
+  };
+
+  static VkLayerSettingsCreateInfoEXT layerSettingsCreateInfo = {
+      .sType        = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
+      .settingCount = static_cast<uint32_t>(std::size(settings)),
+      .pSettings    = settings,
+  };
+
+  info.instanceCreateInfoExt = &layerSettingsCreateInfo;
+#endif
+#endif
 #endif
 }
 
@@ -63,6 +94,7 @@ class Sample : public nvvk::AppWindowProfilerVK
 
   enum GuiEnums
   {
+    GUI_SHADERS,
     GUI_BINDINGS,
     GUI_RENDERER,
     GUI_STRATEGY,
@@ -73,29 +105,34 @@ public:
   struct Tweak
   {
     int         renderer      = 0;
-    BindingMode binding       = BINDINGMODE_DSETS;
+    BindingMode binding       = BINDINGMODE_INDEX_VERTEXATTRIB;
     Strategy    strategy      = STRATEGY_GROUPS;
     int         msaa          = 4;
     int         copies        = 4;
     bool        unordered     = true;
-    bool        interleaved   = false;
+    bool        interleaved   = true;
     bool        sorted        = false;
     bool        permutated    = false;
+    bool        binned        = false;
     bool        animation     = false;
     bool        animationSpin = false;
+    int         useShaderObjs = 0;
     uint32_t    maxShaders    = 16;
     int         cloneaxisX    = 1;
     int         cloneaxisY    = 1;
     int         cloneaxisZ    = 1;
-    float       percent       = 1.001f;
+    float       percent       = 1.01f;
     uint32_t    workingSet    = 4096;
     uint32_t    workerThreads = 4;
     bool        workerBatched = true;
   };
 
 
-  bool     m_useUI      = true;
-  uint32_t m_maxThreads = 1;
+  bool     m_useUI              = true;
+  bool     m_supportsShaderObjs = false;
+  bool     m_supportsBinning    = false;
+  bool     m_supportsNV         = false;
+  uint32_t m_maxThreads         = 1;
 
   ImGuiH::Registry m_ui;
   double           m_uiTime = 0;
@@ -108,10 +145,10 @@ public:
   std::vector<unsigned int> m_renderersSorted;
   std::string               m_rendererName;
 
-  Renderer* NV_RESTRICT  m_renderer;
-  Resources* NV_RESTRICT m_resources;
-  Resources::Global      m_shared;
-  Renderer::Stats        m_renderStats;
+  Renderer*         m_renderer = nullptr;
+  ResourcesVK       m_resources;
+  Resources::Global m_shared;
+  Renderer::Stats   m_renderStats;
 
   std::string m_modelFilename;
   double      m_animBeginTime;
@@ -127,9 +164,9 @@ public:
 
   bool initProgram();
   bool initScene(const char* filename, int clones, int cloneaxis);
-  bool initFramebuffers(int width, int height);
   void initRenderer(int type);
   void deinitRenderer();
+  void initResources();
 
   void setupConfigParameters();
   void setRendererFromName();
@@ -242,20 +279,37 @@ bool Sample::initScene(const char* filename, int clones, int cloneaxis)
   return status;
 }
 
-bool Sample::initFramebuffers(int width, int height)
-{
-  return m_resources->initFramebuffer(width, height, m_tweak.msaa, getVsync());
-}
-
 void Sample::deinitRenderer()
 {
   if(m_renderer)
   {
-    m_resources->synchronize();
+    m_resources.synchronize();
     m_renderer->deinit();
     delete m_renderer;
-    m_renderer = NULL;
+    m_renderer = nullptr;
   }
+}
+
+void Sample::initResources()
+{
+  std::string            prepend;
+  CadScene::IndexingBits bits = m_scene.getIndexingBits();
+  prepend += nvh::ShaderFileManager::format("#define INDEXED_MATRIX_BITS %d\n", bits.matrices);
+  prepend += nvh::ShaderFileManager::format("#define INDEXED_MATERIAL_BITS %d\n", bits.materials);
+
+  bool valid = m_resources.init(&m_context, &m_swapChain, &m_profiler);
+  valid = valid && m_resources.initFramebuffer(m_windowState.m_swapSize[0], m_windowState.m_swapSize[1], m_tweak.msaa, getVsync());
+  valid               = valid && m_resources.initPrograms(exePath(), prepend);
+  valid               = valid && m_resources.initScene(m_scene);
+  m_resources.m_frame = 0;
+
+  if(!valid)
+  {
+    LOGE("resource initialization failed\n");
+    exit(-1);
+  }
+
+  m_lastVsync = getVsync();
 }
 
 void Sample::initRenderer(int typesort)
@@ -264,28 +318,61 @@ void Sample::initRenderer(int typesort)
 
   deinitRenderer();
 
-  if(Renderer::getRegistry()[type]->resources() != m_resources)
   {
-    if(m_resources)
+    uint32_t    supported = Renderer::getRegistry()[type]->supportedBindingModes();
+    BindingMode mode      = BINDINGMODE_DSETS;
+    m_ui.enumReset(GUI_BINDINGS);
+    if(supported & (1 << BINDINGMODE_DSETS))
     {
-      m_resources->synchronize();
-      m_resources->deinit();
+      m_ui.enumAdd(GUI_BINDINGS, BINDINGMODE_DSETS, "dsetbinding");
+      mode = BINDINGMODE_DSETS;
     }
-    m_resources = Renderer::getRegistry()[type]->resources();
-    bool valid  = m_resources->init(&m_context, &m_swapChain, &m_profiler);
-    valid = valid && m_resources->initFramebuffer(m_windowState.m_swapSize[0], m_windowState.m_swapSize[1], m_tweak.msaa, getVsync());
-    valid                = valid && m_resources->initPrograms(exePath(), std::string());
-    valid                = valid && m_resources->initScene(m_scene);
-    m_resources->m_frame = 0;
-
-    if(!valid)
+    if(supported & (1 << BINDINGMODE_PUSHADDRESS))
     {
-      LOGE("resource initialization failed for renderer: %s\n", Renderer::getRegistry()[type]->name());
-      exit(-1);
+      m_ui.enumAdd(GUI_BINDINGS, BINDINGMODE_PUSHADDRESS, "pushaddress");
+      mode = BINDINGMODE_PUSHADDRESS;
+    }
+    if(supported & (1 << BINDINGMODE_INDEX_BASEINSTANCE) && m_scene.supportsIndexing())
+    {
+      m_ui.enumAdd(GUI_BINDINGS, BINDINGMODE_INDEX_BASEINSTANCE, "baseinstance index");
+      mode = BINDINGMODE_INDEX_BASEINSTANCE;
+    }
+    if(supported & (1 << BINDINGMODE_INDEX_VERTEXATTRIB) && m_scene.supportsIndexing())
+    {
+      m_ui.enumAdd(GUI_BINDINGS, BINDINGMODE_INDEX_VERTEXATTRIB, "inst.vertexattrib index");
+      mode = BINDINGMODE_INDEX_VERTEXATTRIB;
     }
 
-    m_lastVsync = getVsync();
+    if(!(supported & (1 << m_tweak.binding)))
+    {
+      m_tweak.binding = mode;
+    }
   }
+
+  {
+    bool supported     = Renderer::getRegistry()[type]->supportsShaderObjs();
+    bool useShaderObjs = false;
+    m_ui.enumReset(GUI_SHADERS);
+    m_ui.enumAdd(GUI_SHADERS, SHADERMODE_PIPELINE, "pipeline");
+    if(supported)
+    {
+      m_ui.enumAdd(GUI_SHADERS, SHADERMODE_OBJS, "shaderobjs");
+    }
+
+    if(!supported && m_tweak.useShaderObjs)
+    {
+      m_tweak.useShaderObjs = false;
+    }
+  }
+
+  if(m_tweak.sorted)
+  {
+    m_tweak.permutated = false;
+  }
+
+  m_tweak.maxShaders = std::min(m_tweak.maxShaders, std::min(uint32_t(NUM_MATERIAL_SHADERS),
+                                                             Renderer::getRegistry()[type]->supportedShaderBinds()));
+  m_tweak.maxShaders = std::max(m_tweak.maxShaders, uint32_t(1));
 
   Renderer::Config config;
   config.objectFrom    = 0;
@@ -293,49 +380,31 @@ void Sample::initRenderer(int typesort)
   config.strategy      = m_tweak.strategy;
   config.bindingMode   = m_tweak.binding;
   config.sorted        = m_tweak.sorted;
+  config.binned        = m_tweak.binned;
+  config.interleaved   = m_tweak.interleaved;
   config.unordered     = m_tweak.unordered;
   config.permutated    = m_tweak.permutated;
-  config.maxShaders    = std::min(uint32_t(NUM_MATERIAL_SHADERS), std::max(m_tweak.maxShaders, uint32_t(1)));
+  config.maxShaders    = m_tweak.maxShaders;
   config.workerThreads = m_tweak.workerThreads;
+  config.shaderObjs    = m_tweak.useShaderObjs != 0;
 
   m_renderStats = Renderer::Stats();
 
   LOGI("renderer: %s\n", Renderer::getRegistry()[type]->name());
   m_renderer = Renderer::getRegistry()[type]->create();
-  m_renderer->init(&m_scene, m_resources, config, m_renderStats);
+  m_renderer->init(&m_scene, &m_resources, config, m_renderStats);
 
   LOGI("drawCalls:    %9d\n", m_renderStats.drawCalls);
   LOGI("drawTris:     %9d\n", m_renderStats.drawTriangles);
   LOGI("shaderBinds:  %9d\n", m_renderStats.shaderBindings);
   LOGI("prep.Buffer:  %9d KB\n\n", m_renderStats.preprocessSizeKB);
-
-  uint32_t    supported = m_renderer->supportedBindingModes();
-  BindingMode mode      = BINDINGMODE_DSETS;
-  m_ui.enumReset(GUI_BINDINGS);
-  if(supported & (1 << BINDINGMODE_DSETS))
-  {
-    m_ui.enumAdd(GUI_BINDINGS, BINDINGMODE_DSETS, "dsetbinding");
-    mode = BINDINGMODE_DSETS;
-  }
-  if(supported & (1 << BINDINGMODE_PUSHADDRESS))
-  {
-    m_ui.enumAdd(GUI_BINDINGS, BINDINGMODE_PUSHADDRESS, "pushaddress");
-    mode = BINDINGMODE_PUSHADDRESS;
-  }
-  if(supported != ((1 << NUM_BINDINGMODES) - 1))
-  {
-    m_tweak.binding = mode;
-  }
 }
 
 
 void Sample::end()
 {
   deinitRenderer();
-  if(m_resources)
-  {
-    m_resources->deinit();
-  }
+  m_resources.deinit();
   ResourcesVK::deinitImGui(m_context);
 }
 
@@ -350,10 +419,30 @@ bool Sample::begin()
   m_timeInTitle   = true;
 #endif
 
-  m_renderer  = NULL;
-  m_resources = NULL;
 
   ImGuiH::Init(m_windowState.m_winSize[0], m_windowState.m_winSize[1], this);
+
+  if(m_context.hasDeviceExtension(VK_EXT_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME))
+  {
+    bool loaded = load_VK_EXT_device_generated_commands(m_context.m_instance, m_context.m_device);
+    if(!loaded)
+    {
+      LOGE("Failed to load functions for VK_EXT_DEVICE_GENERATED_COMMANDS_EXTENSION\n");
+      return false;
+    }
+
+    VkPhysicalDeviceDeviceGeneratedCommandsPropertiesEXT props = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_EXT};
+    VkPhysicalDeviceProperties2 props2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    props2.pNext                       = &props;
+    vkGetPhysicalDeviceProperties2(m_context.m_physicalDevice, &props2);
+
+    if(props.deviceGeneratedCommandsMultiDrawIndirectCount)
+    {
+      m_supportsBinning = true;
+    }
+  }
+  m_supportsNV         = m_context.hasDeviceExtension(VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
+  m_supportsShaderObjs = m_context.hasDeviceExtension(VK_EXT_SHADER_OBJECT_EXTENSION_NAME);
 
   bool validated(true);
   validated = validated && initProgram();
@@ -410,8 +499,9 @@ bool Sample::begin()
       m_ui.enumAdd(GUI_RENDERER, int(i), registry[m_renderersSorted[i]]->name());
     }
 
-    m_ui.enumAdd(GUI_STRATEGY, STRATEGY_INDIVIDUAL, "drawcall individual");
-    m_ui.enumAdd(GUI_STRATEGY, STRATEGY_GROUPS, "material groups");
+    m_ui.enumAdd(GUI_STRATEGY, STRATEGY_GROUPS, "object material groups");
+    m_ui.enumAdd(GUI_STRATEGY, STRATEGY_INDIVIDUAL, "object individual surfaces");
+    m_ui.enumAdd(GUI_STRATEGY, STRATEGY_SINGLE, "object as single mesh");
 
     m_ui.enumAdd(GUI_MSAA, 0, "none");
     m_ui.enumAdd(GUI_MSAA, 2, "2x");
@@ -430,6 +520,7 @@ bool Sample::begin()
   m_shared.sceneUbo.wLightPos     = (m_scene.m_bbox.max + m_scene.m_bbox.min) * 0.5f + m_control.m_sceneDimension;
   m_shared.sceneUbo.wLightPos.w   = 1.0;
 
+  initResources();
   initRenderer(m_tweak.renderer);
 
   m_lastTweak = m_tweak;
@@ -452,9 +543,9 @@ void Sample::processUI(int width, int height, double time)
   if(ImGui::Begin("NVIDIA " PROJECT_NAME, nullptr))
   {
     m_ui.enumCombobox(GUI_RENDERER, "renderer", &m_tweak.renderer);
-    m_ui.enumCombobox(GUI_STRATEGY, "strategy", &m_tweak.strategy);
-    //m_ui.enumCombobox(GUI_MSAA, "msaa", &m_tweak.msaa);
+    m_ui.enumCombobox(GUI_SHADERS, "shaders", &m_tweak.useShaderObjs);
     m_ui.enumCombobox(GUI_BINDINGS, "binding", &m_tweak.binding);
+    m_ui.enumCombobox(GUI_STRATEGY, "strategy", &m_tweak.strategy);
 
     ImGui::PushItemWidth(ImGuiH::dpiScaled(100));
 
@@ -463,11 +554,21 @@ void Sample::processUI(int width, int height, double time)
     ImGuiH::InputIntClamped("copies", &m_tweak.copies, 1, 16, 1, 1, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SliderFloat("pct visible", &m_tweak.percent, 0.0f, 1.001f);
     ImGui::Checkbox("sorted once (minimized state changes)", &m_tweak.sorted);
-    ImGui::Checkbox("permutated (random state changes,\ngen: use seqindex)", &m_tweak.permutated);
+    ImGui::Checkbox("permutated (random state changes,\ngen nv: use seqindex)", &m_tweak.permutated);
     ImGui::Checkbox("gen: unordered (non-coherent)", &m_tweak.unordered);
-    ImGui::Checkbox("gen: interleaved inputs", &m_tweak.interleaved);
-    ImGuiH::InputIntClamped("threaded: worker threads", &m_tweak.workerThreads, 1, m_maxThreads, 1, 1);
-    ImGuiH::InputIntClamped("threaded: drawcalls per cmdbuffer", &m_tweak.workingSet, 512, 1 << 20, 512, 1024);
+    if(m_supportsBinning)
+    {
+      ImGui::Checkbox("gen ext: binned via draw_indexed_count", &m_tweak.binned);
+    }
+    if(m_supportsNV)
+    {
+      ImGui::Checkbox("gen nv: interleaved inputs", &m_tweak.interleaved);
+    }
+
+    ImGuiH::InputIntClamped("threaded: worker threads", &m_tweak.workerThreads, 1, m_maxThreads, 1, 1,
+                            ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGuiH::InputIntClamped("threaded: drawcalls per cmdbuffer", &m_tweak.workingSet, 512, 1 << 20, 512, 1024,
+                            ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::Checkbox("threaded: batched submission", &m_tweak.workerBatched);
     ImGui::Checkbox("animation", &m_tweak.animation);
     ImGui::PopItemWidth();
@@ -526,11 +627,13 @@ void Sample::processUI(int width, int height, double time)
 
       //ImGui::ProgressBar(cpuTimeF / maxTimeF, ImVec2(0.0f, 0.0f));
       ImGui::Separator();
-      ImGui::Text(" cmdBuffers:   %9d\n", m_renderStats.cmdBuffers);
-      ImGui::Text(" drawCalls:    %9d\n", m_renderStats.drawCalls);
-      ImGui::Text(" drawTris:     %9d\n", m_renderStats.drawTriangles);
-      ImGui::Text(" shaderBinds:  %9d\n", m_renderStats.shaderBindings);
-      ImGui::Text(" outputBuffer: %9d KB\n\n", m_renderStats.preprocessSizeKB);
+      ImGui::Text(" cmdBuffers:           %9d\n", m_renderStats.cmdBuffers);
+      ImGui::Text(" drawCalls:            %9d\n", m_renderStats.drawCalls);
+      ImGui::Text(" drawTris:             %9d\n", m_renderStats.drawTriangles);
+      ImGui::Text(" serial shaderBinds:   %9d\n", m_renderStats.shaderBindings);
+      ImGui::Text(" dgc sequences:        %9d\n", m_renderStats.sequences);
+      ImGui::Text(" dgc preprocessBuffer: %9d KB\n", m_renderStats.preprocessSizeKB);
+      ImGui::Text(" dgc indirectBuffer:   %9d KB\n\n", m_renderStats.indirectSizeKB);
     }
   }
   ImGui::End();
@@ -550,16 +653,10 @@ void Sample::think(double time)
                            glm::vec2(m_windowState.m_mouseCurrent[0], m_windowState.m_mouseCurrent[1]),
                            m_windowState.m_mouseButtonFlags, m_windowState.m_mouseWheel);
 
-  if(m_windowState.onPress(KEY_R))
-  {
-    m_resources->synchronize();
-    m_resources->reloadPrograms(std::string());
-  }
-
   if(m_tweak.msaa != m_lastTweak.msaa || getVsync() != m_lastVsync)
   {
     m_lastVsync = getVsync();
-    m_resources->initFramebuffer(width, height, m_tweak.msaa, getVsync());
+    m_resources.initFramebuffer(width, height, m_tweak.msaa, getVsync());
   }
 
   bool sceneChanged = false;
@@ -567,30 +664,44 @@ void Sample::think(double time)
      || m_tweak.cloneaxisY != m_lastTweak.cloneaxisY || m_tweak.cloneaxisZ != m_lastTweak.cloneaxisZ)
   {
     sceneChanged = true;
-    m_resources->synchronize();
+    m_resources.synchronize();
     deinitRenderer();
-    m_resources->deinitScene();
+    m_resources.deinitScene();
     initScene(m_modelFilename.c_str(), m_tweak.copies - 1,
               (m_tweak.cloneaxisX << 0) | (m_tweak.cloneaxisY << 1) | (m_tweak.cloneaxisZ << 2));
-    m_resources->initScene(m_scene);
+    m_resources.initScene(m_scene);
   }
 
-  if(sceneChanged || m_tweak.renderer != m_lastTweak.renderer || m_tweak.binding != m_lastTweak.binding
-     || m_tweak.strategy != m_lastTweak.strategy || m_tweak.sorted != m_lastTweak.sorted
-     || m_tweak.percent != m_lastTweak.percent || m_tweak.workerThreads != m_lastTweak.workerThreads
-     || m_tweak.maxShaders != m_lastTweak.maxShaders || m_tweak.interleaved != m_lastTweak.interleaved
-     || m_tweak.permutated != m_lastTweak.permutated || m_tweak.unordered != m_lastTweak.unordered)
+  bool rendererChanged = false;
+  if(m_windowState.onPress(KEY_R) || m_tweak.copies != m_lastTweak.copies)
   {
-    m_resources->synchronize();
+    m_resources.synchronize();
+    std::string            prepend;
+    CadScene::IndexingBits bits = m_scene.getIndexingBits();
+    prepend += nvh::ShaderFileManager::format("#define INDEXED_MATRIX_BITS %d\n", bits.matrices);
+    prepend += nvh::ShaderFileManager::format("#define INDEXED_MATERIAL_BITS %d\n", bits.materials);
+    m_resources.reloadPrograms(prepend);
+    rendererChanged = true;
+  }
+
+  if(sceneChanged || rendererChanged || m_tweak.renderer != m_lastTweak.renderer
+     || m_tweak.binding != m_lastTweak.binding || m_tweak.strategy != m_lastTweak.strategy
+     || m_tweak.sorted != m_lastTweak.sorted || m_tweak.percent != m_lastTweak.percent
+     || m_tweak.workerThreads != m_lastTweak.workerThreads || m_tweak.workerBatched != m_lastTweak.workerBatched
+     || m_tweak.maxShaders != m_lastTweak.maxShaders || m_tweak.interleaved != m_lastTweak.interleaved
+     || m_tweak.permutated != m_lastTweak.permutated || m_tweak.unordered != m_lastTweak.unordered
+     || m_tweak.binned != m_lastTweak.binned || m_tweak.useShaderObjs != m_lastTweak.useShaderObjs)
+  {
+    m_resources.synchronize();
     initRenderer(m_tweak.renderer);
   }
 
-  m_resources->beginFrame();
+  m_resources.beginFrame();
 
   if(m_tweak.animation != m_lastTweak.animation)
   {
-    m_resources->synchronize();
-    m_resources->animationReset();
+    m_resources.synchronize();
+    m_resources.animationReset();
 
     m_animBeginTime = time;
   }
@@ -635,7 +746,7 @@ void Sample::think(double time)
     AnimationData& animUbo = m_shared.animUbo;
     animUbo.time           = float(time - m_animBeginTime);
 
-    m_resources->animation(m_shared);
+    m_resources.animation(m_shared);
   }
 
   {
@@ -653,11 +764,11 @@ void Sample::think(double time)
       m_shared.imguiDrawData = nullptr;
     }
 
-    m_resources->blitFrame(m_shared);
+    m_resources.blitFrame(m_shared);
   }
 
-  m_resources->endFrame();
-  m_resources->m_frame++;
+  m_resources.endFrame();
+  m_resources.m_frame++;
 
   if(m_useUI)
   {
@@ -669,7 +780,7 @@ void Sample::think(double time)
 
 void Sample::resize(int width, int height)
 {
-  initFramebuffers(width, height);
+  m_resources.initFramebuffer(width, height, m_tweak.msaa, getVsync());
 }
 
 void Sample::setRendererFromName()
@@ -699,15 +810,26 @@ void Sample::setupConfigParameters()
 
   m_parameterList.add("unordered", &m_tweak.unordered);
   m_parameterList.add("interleaved", &m_tweak.interleaved);
+  m_parameterList.add("binned", &m_tweak.binned);
+  m_parameterList.add("permutated", &m_tweak.permutated);
+  m_parameterList.add("sorted", &m_tweak.sorted);
+  m_parameterList.add("percent", &m_tweak.percent);
   m_parameterList.add("renderer", (uint32_t*)&m_tweak.renderer);
   m_parameterList.add("renderernamed", &m_rendererName);
   m_parameterList.add("strategy", (uint32_t*)&m_tweak.strategy);
-  m_parameterList.add("drawmode", (uint32_t*)&m_tweak.binding);
+  m_parameterList.add("bindingmode", (uint32_t*)&m_tweak.binding);
+  m_parameterList.add("shadermode", (uint32_t*)&m_tweak.useShaderObjs);
   m_parameterList.add("msaa", &m_tweak.msaa);
   m_parameterList.add("copies", &m_tweak.copies);
   m_parameterList.add("animation", &m_tweak.animation);
   m_parameterList.add("animationspin", &m_tweak.animationSpin);
   m_parameterList.add("minstatechanges", &m_tweak.sorted);
+  m_parameterList.add("maxshaders", &m_tweak.maxShaders);
+  m_parameterList.add("workerbatched", &m_tweak.workerBatched);
+  m_parameterList.add("workerthreads", &m_tweak.workerThreads);
+  m_parameterList.add("workingset", &m_tweak.workingSet);
+  m_parameterList.add("animation", &m_tweak.animation);
+  m_parameterList.add("animationspin", &m_tweak.animationSpin);
 }
 
 bool Sample::validateConfig()

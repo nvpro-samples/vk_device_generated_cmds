@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -51,12 +51,25 @@
   };
   #define material v.material
   
+#elif UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_VERTEXATTRIB || UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_BASEINSTANCE
+
+  layout(set=0, binding=DRAW_UBO_SCENE, scalar) uniform sceneBuffer {
+    SceneData   scene;
+  };
+  layout(set=0, binding=DRAW_SSBO_MATERIAL, scalar) readonly buffer MaterialBuffer {
+    MaterialData  materialDatas[];
+  };
+  #define material materialDatas[IN.materialIndex * 2]
+  
 #endif
 
 
 layout(location=0) in Interpolants {
   vec3 wPos;
   vec3 wNormal;
+#if UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_VERTEXATTRIB || UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_BASEINSTANCE
+  flat uint materialIndex;
+#endif
 #if SHADER_PERMUTATION
   vec3 oNormal;
 #endif

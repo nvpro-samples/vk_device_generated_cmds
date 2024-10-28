@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,17 +23,28 @@
 #define CSFTHREADED_COMMON_H
 
 #define VERTEX_POS_OCTNORMAL      0
+#define VERTEX_COMBINED_INDEX     1
+
+#ifndef INDEXED_MATRIX_BITS     
+#define INDEXED_MATRIX_BITS      24
+#endif
+
+#ifndef INDEXED_MATERIAL_BITS
+#define INDEXED_MATERIAL_BITS     8
+#endif
 
 // changing these orders may break a lot of things ;)
 #define DRAW_UBO_SCENE     0
 #define DRAW_UBO_MATRIX    1
+#define DRAW_SSBO_MATRIX   1
 #define DRAW_UBO_MATERIAL  2
+#define DRAW_SSBO_MATERIAL 2
 
 #define ANIM_UBO              0
 #define ANIM_SSBO_MATRIXOUT   1
 #define ANIM_SSBO_MATRIXORIG  2
 
-#define ANIMATION_WORKGROUPSIZE 256
+#define ANIMATION_WORKGROUPSIZE   256
 
 #ifndef SHADER_PERMUTATION
 #define SHADER_PERMUTATION 1
@@ -44,13 +55,20 @@
 // see resources_vk.hpp
 
 #ifndef UNIFORMS_MULTISETSDYNAMIC
-#define UNIFORMS_MULTISETSDYNAMIC 0
+#define UNIFORMS_MULTISETSDYNAMIC       0
 #endif
 #ifndef UNIFORMS_PUSHCONSTANTS_ADDRESS
-#define UNIFORMS_PUSHCONSTANTS_ADDRESS 1
+#define UNIFORMS_PUSHCONSTANTS_ADDRESS  1
 #endif
+#ifndef UNIFORMS_INDEX_VERTEXATTRIB
+#define UNIFORMS_INDEX_VERTEXATTRIB 2
+#endif
+#ifndef UNIFORMS_INDEX_BASEINSTANCE
+#define UNIFORMS_INDEX_BASEINSTANCE 3
+#endif
+
 #ifndef UNIFORMS_TECHNIQUE
-#define UNIFORMS_TECHNIQUE UNIFORMS_PUSHCONSTANTS_ADDRESS
+#define UNIFORMS_TECHNIQUE UNIFORMS_INDEX_VERTEXATTRIB
 #endif
 
 //////////////////////////////////////////////////////////////////////////

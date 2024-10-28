@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2014-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2014-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@
 #ifndef CADSCENE_H__
 #define CADSCENE_H__
 
-#include <cstring> // memset
+#include <cstring>  // memset
 #include <glm/glm.hpp>
 #include <vector>
 #include <cstdint>
@@ -55,7 +55,7 @@ public:
 
     inline BBox transformed(const glm::mat4& matrix, int dim = 3)
     {
-      int           i;
+      int       i;
       glm::vec4 box[16];
       // create box corners
       box[0] = glm::vec4(min.x, min.y, min.z, min.w);
@@ -119,8 +119,8 @@ public:
   struct Vertex
   {
     glm::vec3 position;
-    uint16_t      normalOctX;
-    uint16_t      normalOctY;
+    uint16_t  normalOctX;
+    uint16_t  normalOctY;
   };
 
   struct DrawRange
@@ -200,12 +200,11 @@ public:
     DrawRangeCache cacheWire;
   };
 
-  std::vector<Material>      m_materials;
-  std::vector<BBox>          m_geometryBboxes;
-  std::vector<Geometry>      m_geometry;
-  std::vector<MatrixNode>    m_matrices;
-  std::vector<Object>        m_objects;
-  std::vector<glm::ivec2> m_objectAssigns;
+  std::vector<Material>   m_materials;
+  std::vector<BBox>       m_geometryBboxes;
+  std::vector<Geometry>   m_geometry;
+  std::vector<MatrixNode> m_matrices;
+  std::vector<Object>     m_objects;
 
 
   BBox m_bbox;
@@ -215,6 +214,20 @@ public:
 
   bool loadCSF(const char* filename, int clones = 0, int cloneaxis = 3);
   void unload();
+
+  struct IndexingBits
+  {
+    uint32_t matrices  = 0;
+    uint32_t materials = 0;
+
+    uint32_t packIndices(uint32_t matrixIndex, uint32_t materialIndex) const
+    {
+      return matrixIndex | (materialIndex << matrices);
+    }
+  };
+
+  IndexingBits getIndexingBits() const;
+  bool         supportsIndexing() const;
 };
 
 

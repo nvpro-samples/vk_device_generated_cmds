@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
 
-#version 440 core
+#version 460 core
 /**/
 
 #extension GL_GOOGLE_include_directive : enable
@@ -38,6 +38,9 @@
   
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_ADDRESS
 
+  layout(set=0, binding=DRAW_UBO_SCENE, scalar) uniform sceneBuffer {
+    SceneData   scene;
+  };
   layout(buffer_reference, buffer_reference_align=16, scalar) readonly buffer MatrixBuffer {
     MatrixData  matrix;
   };
@@ -46,20 +49,35 @@
     MatrixBuffer v;
   };
   #define matrix v.matrix
-  
+
+#elif UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_VERTEXATTRIB || UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_BASEINSTANCE
+
   layout(set=0, binding=DRAW_UBO_SCENE, scalar) uniform sceneBuffer {
     SceneData   scene;
   };
+  layout(set=0, binding=DRAW_SSBO_MATRIX, scalar) readonly buffer MatrixBuffer {
+    MatrixData  matrices[];
+  };
 
-  
+  #if UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_VERTEXATTRIB
+    in layout(location=VERTEX_COMBINED_INDEX) uint inCombinedIndex;
+
+    #define matrix matrices[uint(inCombinedIndex) & ((1u<<INDEXED_MATRIX_BITS)-1)]
+  #else
+    #define matrix matrices[uint(gl_BaseInstance) & ((1u<<INDEXED_MATRIX_BITS)-1)]
+  #endif
+
 #endif
 
 
-in layout(location=VERTEX_POS_OCTNORMAL)      vec4 inPosNormal;
+in layout(location=VERTEX_POS_OCTNORMAL)       vec4 inPosNormal;
 
 layout(location=0) out Interpolants {
   vec3 wPos;
   vec3 wNormal;
+#if UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_VERTEXATTRIB || UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_BASEINSTANCE
+  flat uint materialIndex;
+#endif
 #if SHADER_PERMUTATION
   vec3 oNormal;
 #endif
@@ -93,7 +111,11 @@ void main()
 #if SHADER_PERMUTATION
   OUT.oNormal   = inNormal;
 #endif
-  
+#if UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_BASEINSTANCE
+  OUT.materialIndex = uint(gl_BaseInstance) >> INDEXED_MATRIX_BITS;
+#elif UNIFORMS_TECHNIQUE == UNIFORMS_INDEX_VERTEXATTRIB
+  OUT.materialIndex = inCombinedIndex >> INDEXED_MATRIX_BITS;
+#endif
   
   OUT.wPos = wPos;
   OUT.wNormal = wNormal;

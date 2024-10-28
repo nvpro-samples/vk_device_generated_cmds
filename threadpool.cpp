@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2014-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2014-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -24,7 +24,7 @@
 #include "nvh/nvprint.hpp"
 #include <assert.h>
 
-#define THREADPOOL_TERMINATE_FUNC  ((ThreadPool::WorkerFunc)1)
+#define THREADPOOL_TERMINATE_FUNC ((ThreadPool::WorkerFunc)1)
 
 #define USE_PHYSICAL_CORES_ONLY 1
 
@@ -32,23 +32,21 @@
 
 #include <windows.h>
 
-typedef BOOL (WINAPI *LPFN_GLPI)(
-  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, 
-  PDWORD);
+typedef BOOL(WINAPI* LPFN_GLPI)(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
 
 
 // Helper function to count set bits in the processor mask.
 static DWORD CountSetBits(ULONG_PTR bitMask)
 {
-  DWORD LSHIFT = sizeof(ULONG_PTR)*8 - 1;
-  DWORD bitSetCount = 0;
-  ULONG_PTR bitTest = (ULONG_PTR)1 << LSHIFT;    
-  DWORD i;
+  DWORD     LSHIFT      = sizeof(ULONG_PTR) * 8 - 1;
+  DWORD     bitSetCount = 0;
+  ULONG_PTR bitTest     = (ULONG_PTR)1 << LSHIFT;
+  DWORD     i;
 
-  for (i = 0; i <= LSHIFT; ++i)
+  for(i = 0; i <= LSHIFT; ++i)
   {
-    bitSetCount += ((bitMask & bitTest)?1:0);
-    bitTest/=2;
+    bitSetCount += ((bitMask & bitTest) ? 1 : 0);
+    bitTest /= 2;
   }
 
   return bitSetCount;
@@ -56,53 +54,50 @@ static DWORD CountSetBits(ULONG_PTR bitMask)
 
 unsigned int ThreadPool::sysGetNumCores()
 {
-  LPFN_GLPI glpi;
-  BOOL done = FALSE;
-  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer = NULL;
-  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION ptr = NULL;
-  DWORD returnLength = 0;
-  DWORD logicalProcessorCount = 0;
-  DWORD numaNodeCount = 0;
-  DWORD processorCoreCount = 0;
-  DWORD processorL1CacheCount = 0;
-  DWORD processorL2CacheCount = 0;
-  DWORD processorL3CacheCount = 0;
-  DWORD processorPackageCount = 0;
-  DWORD byteOffset = 0;
-  PCACHE_DESCRIPTOR Cache;
+  LPFN_GLPI                             glpi;
+  BOOL                                  done                  = FALSE;
+  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer                = nullptr;
+  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION ptr                   = nullptr;
+  DWORD                                 returnLength          = 0;
+  DWORD                                 logicalProcessorCount = 0;
+  DWORD                                 numaNodeCount         = 0;
+  DWORD                                 processorCoreCount    = 0;
+  DWORD                                 processorL1CacheCount = 0;
+  DWORD                                 processorL2CacheCount = 0;
+  DWORD                                 processorL3CacheCount = 0;
+  DWORD                                 processorPackageCount = 0;
+  DWORD                                 byteOffset            = 0;
+  PCACHE_DESCRIPTOR                     Cache;
 
-  glpi = (LPFN_GLPI) GetProcAddress(
-    GetModuleHandleA("kernel32"),
-    "GetLogicalProcessorInformation");
-  if (NULL == glpi) 
+  glpi = (LPFN_GLPI)GetProcAddress(GetModuleHandleA("kernel32"), "GetLogicalProcessorInformation");
+  if(nullptr == glpi)
   {
     return std::thread::hardware_concurrency();
   }
 
-  while (!done)
+  while(!done)
   {
     DWORD rc = glpi(buffer, &returnLength);
 
-    if (FALSE == rc) 
+    if(FALSE == rc)
     {
-      if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) 
+      if(GetLastError() == ERROR_INSUFFICIENT_BUFFER)
       {
-        if (buffer) 
+        if(buffer)
           free(buffer);
 
-        buffer = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION)malloc(
-          returnLength);
+        buffer = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION)malloc(returnLength);
 
-        if (NULL == buffer) 
+        if(nullptr == buffer)
         {
           return std::thread::hardware_concurrency();
         }
-      } 
-      else 
+      }
+      else
       {
         return std::thread::hardware_concurrency();
       }
-    } 
+    }
     else
     {
       done = TRUE;
@@ -111,46 +106,46 @@ unsigned int ThreadPool::sysGetNumCores()
 
   ptr = buffer;
 
-  while (byteOffset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION) <= returnLength) 
+  while(byteOffset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION) <= returnLength)
   {
-    switch (ptr->Relationship) 
+    switch(ptr->Relationship)
     {
-    case RelationNumaNode:
-      // Non-NUMA systems report a single record of this type.
-      numaNodeCount++;
-      break;
+      case RelationNumaNode:
+        // Non-NUMA systems report a single record of this type.
+        numaNodeCount++;
+        break;
 
-    case RelationProcessorCore:
-      processorCoreCount++;
+      case RelationProcessorCore:
+        processorCoreCount++;
 
-      // A hyperthreaded core supplies more than one logical processor.
-      logicalProcessorCount += CountSetBits(ptr->ProcessorMask);
-      break;
+        // A hyperthreaded core supplies more than one logical processor.
+        logicalProcessorCount += CountSetBits(ptr->ProcessorMask);
+        break;
 
-    case RelationCache:
-      // Cache data is in ptr->Cache, one CACHE_DESCRIPTOR structure for each cache. 
-      Cache = &ptr->Cache;
-      if (Cache->Level == 1)
-      {
-        processorL1CacheCount++;
-      }
-      else if (Cache->Level == 2)
-      {
-        processorL2CacheCount++;
-      }
-      else if (Cache->Level == 3)
-      {
-        processorL3CacheCount++;
-      }
-      break;
+      case RelationCache:
+        // Cache data is in ptr->Cache, one CACHE_DESCRIPTOR structure for each cache.
+        Cache = &ptr->Cache;
+        if(Cache->Level == 1)
+        {
+          processorL1CacheCount++;
+        }
+        else if(Cache->Level == 2)
+        {
+          processorL2CacheCount++;
+        }
+        else if(Cache->Level == 3)
+        {
+          processorL3CacheCount++;
+        }
+        break;
 
-    case RelationProcessorPackage:
-      // Logical processors share a physical package.
-      processorPackageCount++;
-      break;
+      case RelationProcessorPackage:
+        // Logical processors share a physical package.
+        processorPackageCount++;
+        break;
 
-    default:
-      break;
+      default:
+        break;
     }
     byteOffset += sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
     ptr++;
@@ -187,13 +182,13 @@ unsigned int ThreadPool::sysGetNumCores()
 #endif
 
 
-void ThreadPool::threadKicker( void* arg )
+void ThreadPool::threadKicker(void* arg)
 {
-  ThreadEntry* thread = (ThreadEntry*) arg;
+  ThreadEntry* thread = (ThreadEntry*)arg;
   thread->m_origin->threadProcess(*thread);
 }
 
-void ThreadPool::threadProcess( ThreadEntry& entry )
+void ThreadPool::threadProcess(ThreadEntry& entry)
 {
   {
     std::unique_lock<std::mutex> lock(m_globalMutex);
@@ -206,20 +201,22 @@ void ThreadPool::threadProcess( ThreadEntry& entry )
 
 #if _WIN32 && USE_PHYSICAL_CORES_ONLY
   // assume hyperthreading, move to n physical cores
-  unsigned int cpuCore = entry.m_id*2 + 1;
+  unsigned int cpuCore = entry.m_id * 2 + 1;
   SetThreadAffinityMask(GetCurrentThread(), uint64_t(1) << cpuCore);
 #endif
 
-  while (true)
+  while(true)
   {
     {
       std::unique_lock<std::mutex> lock(entry.m_commMutex);
-      while(!entry.m_fn){
+      while(!entry.m_fn)
+      {
         entry.m_commCond.wait(lock);
       }
     }
 
-    if (entry.m_fn == THREADPOOL_TERMINATE_FUNC) break;
+    if(entry.m_fn == THREADPOOL_TERMINATE_FUNC)
+      break;
 
     NV_BARRIER();
 
@@ -227,7 +224,7 @@ void ThreadPool::threadProcess( ThreadEntry& entry )
 
     entry.m_fn(entry.m_fnArg);
     entry.m_fn = 0;
-    
+
     LOGI("%d finished job\n", entry.m_id);
   }
 
@@ -237,34 +234,36 @@ void ThreadPool::threadProcess( ThreadEntry& entry )
     std::unique_lock<std::mutex> lock(m_globalMutex);
     LOGI("%d shutdown\n", entry.m_id);
   }
-  
 }
 
-void ThreadPool::init( unsigned int numThreads)
+void ThreadPool::init(unsigned int numThreads)
 {
-  m_numThreads  = numThreads;
+  m_numThreads = numThreads;
   m_globalInit = 0;
 
   m_pool = new ThreadEntry[numThreads];
 
-  for (unsigned int i = 0; i < numThreads; i++){
+  for(unsigned int i = 0; i < numThreads; i++)
+  {
     ThreadEntry& entry = m_pool[i];
-    entry.m_id = numThreads - i - 1;
-    entry.m_origin = this;
-    entry.m_fn = 0;
-    entry.m_fnArg = 0;
+    entry.m_id         = numThreads - i - 1;
+    entry.m_origin     = this;
+    entry.m_fn         = 0;
+    entry.m_fnArg      = 0;
   }
 
   NV_BARRIER();
 
-  for (unsigned int i = 0; i < numThreads; i++){
+  for(unsigned int i = 0; i < numThreads; i++)
+  {
     ThreadEntry& entry = m_pool[i];
-    entry.m_thread = std::thread( threadKicker, &m_pool[i]);
+    entry.m_thread     = std::thread(threadKicker, &m_pool[i]);
   }
 
   {
     std::unique_lock<std::mutex> lock(m_globalMutex);
-    while (m_globalInit < numThreads){
+    while(m_globalInit < numThreads)
+    {
       m_globalCond.wait(lock);
     }
   }
@@ -279,12 +278,13 @@ void ThreadPool::deinit()
 {
   NV_BARRIER();
 
-  for (unsigned int i = 0; i < m_numThreads; i++){
+  for(unsigned int i = 0; i < m_numThreads; i++)
+  {
     ThreadEntry& entry = m_pool[i];
 
     {
       std::unique_lock<std::mutex> lock(entry.m_commMutex);
-      entry.m_fn = THREADPOOL_TERMINATE_FUNC;
+      entry.m_fn    = THREADPOOL_TERMINATE_FUNC;
       entry.m_fnArg = 0;
       entry.m_commCond.notify_all();
     }
@@ -294,25 +294,23 @@ void ThreadPool::deinit()
     entry.m_thread.join();
   }
 
-  delete [] m_pool;
-  m_pool = 0;
+  delete[] m_pool;
+  m_pool       = 0;
   m_numThreads = 0;
 }
 
-void ThreadPool::activateJob( unsigned int tid, WorkerFunc fn, void* arg )
+void ThreadPool::activateJob(unsigned int tid, WorkerFunc fn, void* arg)
 {
-  assert( tid < m_numThreads);
+  assert(tid < m_numThreads);
 
   ThreadEntry& entry = m_pool[tid];
 
-  assert( entry.m_fn == 0 );
+  assert(entry.m_fn == 0);
 
   {
     std::unique_lock<std::mutex> lock(entry.m_commMutex);
-    entry.m_fn = fn;
+    entry.m_fn    = fn;
     entry.m_fnArg = arg;
     entry.m_commCond.notify_all();
   }
-
 }
-

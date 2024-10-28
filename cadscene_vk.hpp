@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -24,27 +24,26 @@
 
 #include <nvvk/buffers_vk.hpp>
 #include <nvvk/commands_vk.hpp>
-#include <nvvk/stagingmemorymanager_vk.hpp>
-#include <nvvk/memorymanagement_vk.hpp>
+#include <nvvk/resourceallocator_vk.hpp>
 
 // ScopeStaging handles uploads and other staging operations.
 // not efficient because it blocks/syncs operations
 
 struct ScopeStaging
 {
-  ScopeStaging(nvvk::MemAllocator* memAllocator, VkQueue queue_, uint32_t queueFamily, VkDeviceSize size = 128 * 1024 * 1024)
-      : staging(memAllocator, size)
-      , cmdPool(memAllocator->getDevice(), queueFamily)
+  ScopeStaging(nvvk::ResourceAllocator& resAllocator, VkQueue queue_, uint32_t queueFamily)
+      : staging(*resAllocator.getStaging())
+      , cmdPool(resAllocator.getDevice(), queueFamily)
       , queue(queue_)
       , cmd(VK_NULL_HANDLE)
   {
-    staging.setFreeUnusedOnRelease(false);
   }
+  ~ScopeStaging() { submit(); }
 
-  VkCommandBuffer            cmd;
-  nvvk::StagingMemoryManager staging;
-  nvvk::CommandPool          cmdPool;
-  VkQueue                    queue;
+  VkCommandBuffer             cmd;
+  nvvk::StagingMemoryManager& staging;
+  nvvk::CommandPool           cmdPool;
+  VkQueue                     queue;
 
   VkCommandBuffer getCmd()
   {
@@ -58,20 +57,31 @@ struct ScopeStaging
     {
       cmdPool.submitAndWait(cmd, queue);
       cmd = VK_NULL_HANDLE;
+      staging.releaseResources();
     }
   }
 
-  void upload(const VkDescriptorBufferInfo& binding, const void* data)
+  void uploadAutoSubmit(const VkDescriptorBufferInfo& binding, const void* data)
   {
     if(cmd && (data == nullptr || !staging.fitsInAllocated(binding.range)))
     {
       submit();
-      staging.releaseResources();
     }
     if(data && binding.range)
     {
       staging.cmdToBuffer(getCmd(), binding.buffer, binding.offset, binding.range, data);
     }
+  }
+
+  void* upload(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size, const void* data = nullptr)
+  {
+    return staging.cmdToBuffer(getCmd(), buffer, offset, size, data);
+  }
+
+  template <class T>
+  T* uploadT(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size, const void* data = nullptr)
+  {
+    return (T*)staging.cmdToBuffer(getCmd(), buffer, offset, size, data);
   }
 };
 
@@ -93,27 +103,19 @@ struct GeometryMemoryVK
 
   struct Chunk
   {
-    VkBuffer vbo;
-    VkBuffer ibo;
+    nvvk::Buffer vbo;
+    nvvk::Buffer ibo;
 
     VkDeviceSize vboSize;
     VkDeviceSize iboSize;
-
-    nvvk::AllocationID vboAID;
-    nvvk::AllocationID iboAID;
   };
 
 
-  VkDevice                     m_device = VK_NULL_HANDLE;
-  nvvk::DeviceMemoryAllocator* m_memoryAllocator;
-  std::vector<Chunk>           m_chunks;
+  VkDevice                 m_device = VK_NULL_HANDLE;
+  nvvk::ResourceAllocator* m_resourceAllocator;
+  std::vector<Chunk>       m_chunks;
 
-  void init(VkDevice                     device,
-            VkPhysicalDevice             physicalDevice,
-            nvvk::DeviceMemoryAllocator* memoryAllocator,
-            bool                         needAddress,
-            VkDeviceSize                 vboStride,
-            VkDeviceSize                 maxChunk);
+  void init(nvvk::ResourceAllocator* resourceAllocator, VkDeviceSize vboStride, VkDeviceSize maxChunk);
   void deinit();
   void alloc(VkDeviceSize vboSize, VkDeviceSize iboSize, Allocation& allocation);
   void finalize();
@@ -149,7 +151,6 @@ private:
   VkDeviceSize m_vboAlignment;
   VkDeviceSize m_maxVboChunk;
   VkDeviceSize m_maxIboChunk;
-  bool         m_needAddress;
 
   Index getActiveIndex() { return (m_chunks.size() - 1); }
 
@@ -174,13 +175,9 @@ public:
 
   struct Buffers
   {
-    VkBuffer materials    = VK_NULL_HANDLE;
-    VkBuffer matrices     = VK_NULL_HANDLE;
-    VkBuffer matricesOrig = VK_NULL_HANDLE;
-
-    nvvk::AllocationID materialsAID;
-    nvvk::AllocationID matricesAID;
-    nvvk::AllocationID matricesOrigAID;
+    nvvk::Buffer materials    = {};
+    nvvk::Buffer matrices     = {};
+    nvvk::Buffer matricesOrig = {};
   };
 
   struct Infos
@@ -190,22 +187,21 @@ public:
 
   struct Config
   {
-    bool needAddress      = false;
     bool singleAllocation = false;
   };
 
-  VkDevice                    m_device = VK_NULL_HANDLE;
-  nvvk::DeviceMemoryAllocator m_memAllocator;
+  VkDevice m_device = VK_NULL_HANDLE;
 
   Config m_config;
 
   Buffers m_buffers;
   Infos   m_infos;
 
-  std::vector<Geometry> m_geometry;
-  GeometryMemoryVK      m_geometryMem;
+  std::vector<Geometry>    m_geometry;
+  GeometryMemoryVK         m_geometryMem;
+  nvvk::ResourceAllocator* m_resourceAllocator = nullptr;
 
 
-  void init(const CadScene& cadscene, VkDevice device, VkPhysicalDevice physicalDevice, VkQueue queue, uint32_t queueFamilyIndex, const Config& config);
+  void init(const CadScene& cadscene, nvvk::ResourceAllocator& resourceAllocator, VkQueue queue, uint32_t queueFamilyIndex, const Config& config);
   void deinit();
 };

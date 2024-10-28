@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2014-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2014-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -247,7 +247,6 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
 
   // objects
   m_objects.resize(numObjects * copies);
-  m_objectAssigns.resize(numObjects * copies);
   numObjects = 0;
   for(int n = 0; n < csf->numNodes; n++)
   {
@@ -260,8 +259,6 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
 
     object.matrixIndex   = n;
     object.geometryIndex = csfnode->geometryIDX;
-
-    m_objectAssigns[numObjects] = glm::ivec2(object.matrixIndex, object.geometryIndex);
 
     object.parts.resize(csfnode->numParts);
     for(int i = 0; i < csfnode->numParts; i++)
@@ -420,8 +417,6 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
       {
         object.cacheWire.state[i].matrixIndex += c * numNodes;
       }
-
-      m_objectAssigns[n + numObjects * c] = glm::ivec2(object.matrixIndex, object.geometryIndex);
     }
   }
 
@@ -566,7 +561,32 @@ void CadScene::unload()
   m_matrices.clear();
   m_geometryBboxes.clear();
   m_geometry.clear();
-  m_objectAssigns.clear();
   m_objects.clear();
   m_geometryBboxes.clear();
+}
+
+CadScene::IndexingBits CadScene::getIndexingBits() const
+{
+  CadScene::IndexingBits bits = {1, 1};
+
+  for(uint32_t i = 32; i >= 1; i--)
+  {
+    uint64_t max = uint64_t(1) << i;
+    if(m_matrices.size() < max)
+    {
+      bits.matrices = i;
+    }
+    if(m_materials.size() < max)
+    {
+      bits.materials = i;
+    }
+  }
+
+  return bits;
+}
+
+bool CadScene::supportsIndexing() const
+{
+  IndexingBits bits = getIndexingBits();
+  return (bits.materials + bits.matrices) <= 32;
 }

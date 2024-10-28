@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2021-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,14 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
 
 
 #pragma once
 
-// use pipeline referencing N pipelines for DGC, otherwise single pipeline with N shadergroups
-#define USE_PIPELINE_REFERENCES         1
-// artificially create a few more shader permutations
-#define NUM_MATERIAL_SHADERS            128
+// artificially create a few more shader permutations, pairs of vertex/fragment shaders
+#define NUM_MATERIAL_SHADERS 128
+
+// favor using drawcalls firstIndex / firstVertex rather than
+// setting index / vertex buffers as much
+#define USE_DRAW_OFFSETS 0
+
+// use VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE and vkCmdBindVertexBuffers2
+#define USE_DYNAMIC_VERTEX_STRIDE 0
+
+// enforces single buffers for vbo/ibo
+#define USE_SINGLE_GEOMETRY_ALLOCATION 0
