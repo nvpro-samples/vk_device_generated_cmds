@@ -836,6 +836,7 @@ VkGeneratedCommandsInfoEXT RendererVKGenEXT::getGeneratedCommandsInfo()
   info.preprocessSize             = m_draw.preprocessSize;
   info.indirectAddress            = m_draw.inputBuffer.address;
   info.indirectAddressSize        = m_draw.inputSize;
+  info.shaderStages               = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
 
   return info;
 }
